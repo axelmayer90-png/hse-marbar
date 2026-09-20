@@ -589,7 +589,7 @@ export default function App() {
     }
   };
 
-  const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com'[cite: 8];
+  const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
 
   // Apertura del Modal de Gestión de Tarea
   const openTaskEditModal = (task) => {
