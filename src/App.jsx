@@ -6,7 +6,7 @@ import {
   ShieldCheck, CheckCircle2, AlertTriangle, 
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
-  BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter
+  BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare
 } from 'lucide-react';
 
 export default function App() {
@@ -80,6 +80,14 @@ export default function App() {
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDesc, setTaskDesc] = useState('');
   const [taskDate, setTaskDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // MODAL DE GESTIÓN, COMENTARIOS Y CIERRE DE TAREAS
+  const [selectedTaskForEdit, setSelectedTaskForEdit] = useState(null);
+  const [editStatus, setEditStatus] = useState('En Progreso');
+  const [editComments, setEditComments] = useState('');
+  const [editClosedDate, setEditClosedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [editClosedByName, setEditClosedByName] = useState('');
+  const [isSavingTaskModal, setIsSavingTaskModal] = useState(false);
 
   // Admin
   const [editingTemplateId, setEditingTemplateId] = useState(null);
@@ -581,27 +589,50 @@ export default function App() {
     }
   };
 
-  // Métodos Tareas
-  const updateStatus = async (taskId, newStatus) => {
-    const isDone = newStatus === 'Completada';
-    const completionDate = isDone ? new Date().toISOString().split('T')[0] : null;
-    const completedBy = isDone ? session.user.id : null;
-    const completedByName = isDone ? (currentUserProfile?.full_name || session.user.email) : null;
+  const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com'[cite: 8];
 
-    await supabase.from('tasks').update({ 
-      status: newStatus, 
-      completed_date: completionDate,
-      completed_by: completedBy,
-      completed_by_name: completedByName
-    }).eq('id', taskId);
+  // Apertura del Modal de Gestión de Tarea
+  const openTaskEditModal = (task) => {
+    setSelectedTaskForEdit(task);
+    setEditStatus(task.status || 'En Progreso');
+    setEditComments(task.comments || '');
+    setEditClosedDate(task.closed_work_date || task.completed_date || new Date().toISOString().split('T')[0]);
+    setEditClosedByName(task.completed_by_name || currentUserProfile?.full_name || session?.user?.email || '');
+  };
 
-    setTasks(tasks.map(t => t.id === taskId ? { 
-      ...t, 
-      status: newStatus, 
-      completed_date: completionDate,
-      completed_by: completedBy,
-      completed_by_name: completedByName
-    } : t));
+  // Guardado de Estado, Comentarios, Fecha de Cierre y Trazabilidad
+  const handleSaveTaskStatusAndDetails = async (e) => {
+    e.preventDefault();
+    if (!selectedTaskForEdit) return;
+
+    setIsSavingTaskModal(true);
+    const isDone = editStatus === 'Completada';
+    const nowIso = new Date().toISOString();
+
+    const payload = {
+      status: editStatus,
+      comments: editComments.trim() || null,
+      completed_date: isDone ? editClosedDate : null,
+      closed_work_date: isDone ? editClosedDate : null,
+      closed_system_date: isDone ? (selectedTaskForEdit.closed_system_date || nowIso) : null,
+      completed_by: isDone ? (selectedTaskForEdit.completed_by || session.user.id) : null,
+      completed_by_name: isDone 
+        ? (isAdmin && editClosedByName.trim() ? editClosedByName.trim() : (currentUserProfile?.full_name || session.user.email)) 
+        : null
+    };
+
+    const { error } = await supabase
+      .from('tasks')
+      .update(payload)
+      .eq('id', selectedTaskForEdit.id);
+
+    if (error) {
+      alert('Error al actualizar la tarea: ' + error.message);
+    } else {
+      setTasks(tasks.map(t => t.id === selectedTaskForEdit.id ? { ...t, ...payload } : t));
+      setSelectedTaskForEdit(null);
+    }
+    setIsSavingTaskModal(false);
   };
 
   const handleDeleteTask = async (taskId) => {
@@ -726,8 +757,6 @@ export default function App() {
     if (selectedRig === rigId) setSelectedRig('ALL');
   };
 
-  const isAdmin = currentUserProfile?.role === 'admin';
-
   // Cálculos de guardia individual (14x14)
   const dtmCount = new Set(dailyLogs.filter(l => l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
   const drillCount = dailyLogs.filter(l => l.activity_type === 'Simulacro').length;
@@ -742,8 +771,6 @@ export default function App() {
     return true;
   });
 
-  // AGRUPACIÓN POR JORNADA REAL (Fecha + Inspector)
-  // Permite consolidar múltiples actividades en un solo día trabajado
   const groupedDaysMap = {};
   filteredAdminLogs.forEach((log) => {
     const dayKey = `${log.log_date}_${log.user_id}`;
@@ -760,7 +787,6 @@ export default function App() {
 
   const groupedDaysArray = Object.values(groupedDaysMap).sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  // Días Únicos en DTM (cuenta días calendario reales con presencia en DTM)
   const uniqueDtmDays = new Set(
     filteredAdminLogs
       .filter(l => l.activity_type === 'Asistencia a DTM')
@@ -768,8 +794,8 @@ export default function App() {
   ).size;
 
   const adminStats = {
-    totalWorkDays: groupedDaysArray.length, // Días reales de trabajo en campo
-    dtmDays: uniqueDtmDays,                 // Días en los que asistió a DTM
+    totalWorkDays: groupedDaysArray.length,
+    dtmDays: uniqueDtmDays,
     simulacro: filteredAdminLogs.filter(l => l.activity_type === 'Simulacro').length,
     plan: filteredAdminLogs.filter(l => l.activity_type === 'Tarea Planificada').length,
     reunion: filteredAdminLogs.filter(l => l.activity_type === 'Reunión').length,
@@ -1157,6 +1183,128 @@ export default function App() {
               </form>
             )}
 
+            {/* MODAL PARA EDITAR ESTADO, COMENTARIOS Y FECHA DE CIERRE */}
+            {selectedTaskForEdit && (
+              <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+                  <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+                    <div>
+                      <h3 className="font-bold text-sm sm:text-base">Gestionar / Actualizar Tarea</h3>
+                      <p className="text-xs text-slate-400">MARBAR S.A. - Trazabilidad Operativa</p>
+                    </div>
+                    <button 
+                      type="button" 
+                      onClick={() => setSelectedTaskForEdit(null)}
+                      className="text-slate-400 hover:text-white p-1 rounded-lg"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveTaskStatusAndDetails} className="p-5 space-y-4 overflow-y-auto">
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Tarea:</span>
+                      <h4 className="text-sm font-bold text-slate-800">{selectedTaskForEdit.title}</h4>
+                      {selectedTaskForEdit.description && (
+                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">{selectedTaskForEdit.description}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">Estado de la Tarea:</label>
+                      <select
+                        value={editStatus}
+                        onChange={(e) => setEditStatus(e.target.value)}
+                        className="w-full text-sm font-semibold p-2.5 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      >
+                        <option value="Pendiente">⏳ Pendiente</option>
+                        <option value="En Progreso">🔄 En Progreso</option>
+                        <option value="Completada">✅ Completada / Cerrada</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Comentarios / Novedad de avance o resolución:
+                      </label>
+                      <textarea
+                        value={editComments}
+                        onChange={(e) => setEditComments(e.target.value)}
+                        placeholder="Ingresa qué se inspeccionó, hallazgos, repuestos pedidos o cómo se solucionó..."
+                        rows={3}
+                        required={editStatus === 'Completada'}
+                        className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+
+                    {editStatus === 'Completada' && (
+                      <div className="bg-amber-50/70 p-4 rounded-xl border border-amber-200 space-y-3">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900 border-b border-amber-200/60 pb-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          Datos de Cierre y Trazabilidad
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Fecha en que se cerró/completó la tarea:
+                          </label>
+                          <input
+                            type="date"
+                            value={editClosedDate}
+                            onChange={(e) => setEditClosedDate(e.target.value)}
+                            required
+                            className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
+                          />
+                          <span className="text-[10px] text-slate-500 mt-1 block">
+                            (Permite indicar fechas pasadas para cargar tareas históricas o ya ejecutadas)
+                          </span>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Cerrado por:
+                          </label>
+                          <input
+                            type="text"
+                            value={editClosedByName}
+                            onChange={(e) => setEditClosedByName(e.target.value)}
+                            disabled={!isAdmin}
+                            placeholder="Nombre del inspector o responsable..."
+                            className={`w-full text-sm p-2 border border-slate-300 rounded-lg ${
+                              isAdmin ? 'bg-white text-slate-900' : 'bg-slate-100 text-slate-500 cursor-not-allowed'
+                            }`}
+                          />
+                          <span className="text-[10px] text-slate-500 mt-1 block">
+                            {isAdmin 
+                              ? 'Como administrador puedes ingresar quién cerró la tarea originalmente en campo.'
+                              : 'Se completa con tu usuario activo.'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTaskForEdit(null)}
+                        disabled={isSavingTaskModal}
+                        className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSavingTaskModal}
+                        className="px-5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition disabled:opacity-50 shadow-sm"
+                      >
+                        {isSavingTaskModal ? 'Guardando...' : 'Guardar Cambios'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
             {/* Listado Tareas */}
             <section className="space-y-2.5">
               {loading ? (
@@ -1178,6 +1326,7 @@ export default function App() {
                       key={task.id} 
                       className={`bg-white p-4 rounded-xl shadow-sm border transition-all ${
                         task.status === 'Completada' ? 'border-emerald-200 bg-emerald-50/20 opacity-90' :
+                        task.status === 'En Progreso' ? 'border-blue-300 bg-blue-50/20' :
                         overdue ? 'border-red-400 bg-red-50/40' :
                         dueToday ? 'border-amber-400 bg-amber-50/40' :
                         'border-slate-200'
@@ -1195,9 +1344,31 @@ export default function App() {
 
                       <div className="flex justify-between items-start gap-2">
                         <div className="flex-1">
-                          <h4 className="font-semibold text-slate-900 text-sm">{task.title}</h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-semibold text-slate-900 text-sm">{task.title}</h4>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                              task.status === 'Completada' ? 'bg-emerald-100 text-emerald-800' :
+                              task.status === 'En Progreso' ? 'bg-blue-100 text-blue-800' :
+                              overdue ? 'bg-red-100 text-red-800 font-black' :
+                              'bg-slate-100 text-slate-700'
+                            }`}>
+                              {task.status}
+                            </span>
+                          </div>
+
                           {task.description && (
                             <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{task.description}</p>
+                          )}
+
+                          {/* VISUALIZACIÓN DE COMENTARIOS */}
+                          {task.comments && (
+                            <div className="mt-2 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-slate-700">
+                              <span className="font-bold text-slate-900 flex items-center gap-1 mb-0.5 text-[11px] uppercase tracking-wider">
+                                <MessageSquare className="w-3 h-3 text-amber-600" />
+                                Comentarios / Hallazgos:
+                              </span>
+                              <p className="whitespace-pre-line leading-relaxed">{task.comments}</p>
+                            </div>
                           )}
                         </div>
 
@@ -1208,21 +1379,14 @@ export default function App() {
                               <span>Cerrada</span>
                             </div>
                           ) : (
-                            <select
-                              value={task.status}
-                              onChange={(e) => updateStatus(task.id, e.target.value)}
-                              className={`text-xs font-bold rounded-lg px-2.5 py-1.5 border focus:outline-none transition ${
-                                task.status === 'Completada' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
-                                task.status === 'En Progreso' ? 'bg-blue-100 text-blue-800 border-blue-300' :
-                                overdue ? 'bg-red-100 text-red-800 border-red-300 font-black' :
-                                dueToday ? 'bg-amber-100 text-amber-800 border-amber-300' :
-                                'bg-slate-100 text-slate-700 border-slate-200'
-                              }`}
+                            <button
+                              type="button"
+                              onClick={() => openTaskEditModal(task)}
+                              className="flex items-center gap-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
                             >
-                              <option value="Pendiente">Pendiente</option>
-                              <option value="En Progreso">En Progreso</option>
-                              <option value="Completada">Completada</option>
-                            </select>
+                              <Edit2 className="w-3 h-3" />
+                              Gestionar / Cerrar
+                            </button>
                           )}
 
                           {isAdmin && (
@@ -1245,11 +1409,18 @@ export default function App() {
                           {dueToday && ' ⏳ VENCE HOY'}
                         </span>
 
-                        {task.completed_date && (
-                          <span className="flex items-center gap-1 text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            Cerrada por: <strong>{task.completed_by_name || 'Inspector'}</strong> el {task.completed_date}
-                          </span>
+                        {(task.completed_date || task.closed_work_date) && (
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-1 text-emerald-700 font-semibold bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
+                            <span className="flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              Cerrada por: <strong>{task.completed_by_name || 'Inspector'}</strong> el {task.closed_work_date || task.completed_date}
+                            </span>
+                            {task.closed_system_date && (
+                              <span className="text-[10px] text-slate-400 font-normal">
+                                (Cargado en app: {new Date(task.closed_system_date).toLocaleDateString('es-AR')})
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1260,9 +1431,7 @@ export default function App() {
           </>
         )}
 
-        {/* =================================================== */}
         {/* PESTAÑA: DIARIO DE GUARDIA (14x14) */}
-        {/* =================================================== */}
         {activeTab === 'guardia' && (
           <div className="space-y-4">
             <section className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -1463,9 +1632,7 @@ export default function App() {
           </div>
         )}
 
-        {/* =================================================== */}
         {/* PESTAÑA: CONTINGENCIAS */}
-        {/* =================================================== */}
         {activeTab === 'contingencias' && (
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
@@ -1601,9 +1768,7 @@ export default function App() {
           </div>
         )}
 
-        {/* =================================================== */}
         {/* PESTAÑA: BIENES Y ELEMENTOS */}
-        {/* =================================================== */}
         {activeTab === 'elementos' && (
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
@@ -1718,9 +1883,7 @@ export default function App() {
           </div>
         )}
 
-        {/* =================================================== */}
         {/* PESTAÑA: HISTÓRICO */}
-        {/* =================================================== */}
         {activeTab === 'historico' && (
           <div className="space-y-4">
             <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
@@ -1753,10 +1916,17 @@ export default function App() {
                   <div className="divide-y divide-slate-100 pt-3">
                     <h3 className="text-xs font-bold text-slate-600 uppercase mb-2">Detalle de Actividades</h3>
                     {historyTasks.map((t) => (
-                      <div key={t.id} className="py-2 flex justify-between items-center text-xs">
+                      <div key={t.id} className="py-2.5 flex justify-between items-center text-xs">
                         <div>
                           <p className="font-semibold text-slate-800">{t.title}</p>
-                          <p className="text-slate-400">Prog: {t.scheduled_date} {t.completed_by_name && ` | Por: ${t.completed_by_name}`}</p>
+                          <p className="text-slate-400">
+                            Prog: {t.scheduled_date} 
+                            {(t.closed_work_date || t.completed_date) && ` | Cerrada: ${t.closed_work_date || t.completed_date}`}
+                            {t.completed_by_name && ` | Por: ${t.completed_by_name}`}
+                          </p>
+                          {t.comments && (
+                            <p className="text-slate-600 italic mt-0.5">"{t.comments}"</p>
+                          )}
                         </div>
                         <span className={`px-2 py-0.5 rounded font-bold ${
                           t.status === 'Completada' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
@@ -1772,12 +1942,9 @@ export default function App() {
           </div>
         )}
 
-        {/* =================================================== */}
-        {/* PESTAÑA: ADMIN (ANALÍTICA CONSOLIDADA POR JORNADA)  */}
-        {/* =================================================== */}
+        {/* PESTAÑA: ADMIN */}
         {activeTab === 'admin' && isAdmin && (
           <div className="space-y-6">
-            {/* SECCIÓN 1: PANEL ANALÍTICO AGRUPADO POR JORNADA */}
             <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
@@ -1793,7 +1960,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Filtros de Control */}
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div>
                   <label className="block font-bold text-slate-600 mb-1 flex items-center gap-1">
@@ -1839,63 +2005,53 @@ export default function App() {
                 </div>
               </div>
 
-              {/* TARJETAS MÉTRICAS DE CONTROL (DÍAS REALES Y ACTIVIDADES) */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
-                {/* Jornadas Reales de Trabajo */}
                 <div className="bg-slate-900 text-white p-3 rounded-xl col-span-2 sm:col-span-1 shadow-sm">
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Jornadas Reales</span>
                   <span className="text-2xl font-black text-amber-400">{adminStats.totalWorkDays}</span>
                   <span className="text-[10px] text-slate-400 block mt-0.5">días únicos en campo</span>
                 </div>
 
-                {/* Días en DTM */}
                 <div className="bg-amber-50 p-3 rounded-xl border border-amber-200">
                   <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider block">Días en DTM</span>
                   <span className="text-2xl font-black text-amber-900">{adminStats.dtmDays}</span>
                   <span className="text-[10px] text-amber-700 block mt-0.5">días con asistencia</span>
                 </div>
 
-                {/* Simulacros */}
                 <div className="bg-blue-50 p-3 rounded-xl border border-blue-200">
                   <span className="text-[11px] font-bold text-blue-800 uppercase tracking-wider block">Simulacros</span>
                   <span className="text-2xl font-black text-blue-900">{adminStats.simulacro}</span>
                   <span className="text-[10px] text-blue-700 block mt-0.5">ejecutados</span>
                 </div>
 
-                {/* Tareas Planificadas */}
                 <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
                   <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">Planificadas</span>
                   <span className="text-2xl font-black text-emerald-900">{adminStats.plan}</span>
                   <span className="text-[10px] text-emerald-700 block mt-0.5">completadas</span>
                 </div>
 
-                {/* Reuniones */}
                 <div className="bg-purple-50 p-3 rounded-xl border border-purple-200">
                   <span className="text-[11px] font-bold text-purple-800 uppercase tracking-wider block">Reuniones HSE</span>
                   <span className="text-2xl font-black text-purple-900">{adminStats.reunion}</span>
                   <span className="text-[10px] text-purple-700 block mt-0.5">reuniones</span>
                 </div>
 
-                {/* Visitas Generales */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                   <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">Visitas Generales</span>
                   <span className="text-2xl font-black text-slate-800">{adminStats.visita}</span>
                 </div>
 
-                {/* Auditorías */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                   <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">Auditorías</span>
                   <span className="text-2xl font-black text-slate-800">{adminStats.auditoria}</span>
                 </div>
 
-                {/* Capacitaciones */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                   <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">Capacitaciones</span>
                   <span className="text-2xl font-black text-slate-800">{adminStats.capacitacion}</span>
                 </div>
               </div>
 
-              {/* LISTADO CONSOLIDADO POR JORNADA */}
               <div className="pt-2">
                 <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
                   Registro Consolidado de Jornadas ({groupedDaysArray.length} días de campo - {adminStats.totalActivities} actividades)
@@ -1909,7 +2065,6 @@ export default function App() {
                   ) : (
                     groupedDaysArray.map((day, idx) => (
                       <div key={idx} className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
-                        {/* Cabecera de la Jornada (Inspector + Fecha + Total de tareas en ese día) */}
                         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
                           <div className="flex items-center gap-2">
                             <span className="text-xs bg-slate-900 text-white font-bold px-2.5 py-1 rounded-md">
@@ -1924,7 +2079,6 @@ export default function App() {
                           </span>
                         </div>
 
-                        {/* Desglose de actividades realizadas durante este día */}
                         <div className="space-y-2 pl-1 sm:pl-2">
                           {day.activitiesList.map((act) => (
                             <div key={act.id} className="bg-white p-3 rounded-lg border border-slate-200 space-y-1 text-xs">
@@ -1965,7 +2119,6 @@ export default function App() {
               </div>
             </section>
 
-            {/* SECCIÓN 2: GESTIÓN DE EQUIPOS */}
             <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
                 <HardHat className="w-5 h-5 text-amber-600" />
@@ -2007,7 +2160,6 @@ export default function App() {
               </div>
             </section>
 
-            {/* SECCIÓN 3: CATÁLOGO MAESTRO */}
             <section className="space-y-4">
               <form onSubmit={handleSaveTemplate} className={`bg-white p-5 rounded-xl shadow-sm border ${
                 editingTemplateId ? 'border-2 border-amber-500 bg-amber-50/10' : 'border-slate-200'
