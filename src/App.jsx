@@ -6,7 +6,7 @@ import {
   ShieldCheck, CheckCircle2, AlertTriangle, 
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
-  BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare
+  BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users
 } from 'lucide-react';
 
 export default function App() {
@@ -48,6 +48,7 @@ export default function App() {
   const [logActivities, setLogActivities] = useState('');
   const [logPending, setLogPending] = useState('');
   const [showLogModal, setShowLogModal] = useState(false);
+  const [editingLogId, setEditingLogId] = useState(null);
 
   // Eventos y Contingencias
   const [incidents, setIncidents] = useState([]);
@@ -57,6 +58,7 @@ export default function App() {
   const [incDesc, setIncDesc] = useState('');
   const [incAction, setIncAction] = useState('');
   const [showIncModal, setShowIncModal] = useState(false);
+  const [editingIncId, setEditingIncId] = useState(null);
 
   // Bienes / Recursos
   const [assets, setAssets] = useState([]);
@@ -75,19 +77,28 @@ export default function App() {
   const [moveRigId, setMoveRigId] = useState('');
   const [newLocName, setNewLocName] = useState('');
   const [newLocDate, setNewLocDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedTplIds, setSelectedTplIds] = useState([]);
 
+  // Modal Tarea Eventual / Difusión
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDesc, setTaskDesc] = useState('');
   const [taskDate, setTaskDate] = useState(new Date().toISOString().split('T')[0]);
+  const [taskIsPersistent, setTaskIsPersistent] = useState(false);
 
-  // MODAL DE GESTIÓN, COMENTARIOS Y CIERRE DE TAREAS
+  // Modal de Gestión/Cierre de Tareas
   const [selectedTaskForEdit, setSelectedTaskForEdit] = useState(null);
   const [editStatus, setEditStatus] = useState('En Progreso');
   const [editComments, setEditComments] = useState('');
   const [editClosedDate, setEditClosedDate] = useState(new Date().toISOString().split('T')[0]);
   const [editClosedByName, setEditClosedByName] = useState('');
   const [isSavingTaskModal, setIsSavingTaskModal] = useState(false);
+
+  // Modal Registro de Turno en Difusión
+  const [shiftTask, setShiftTask] = useState(null);
+  const [shiftName, setShiftName] = useState('Turno Mañana / Turno 1');
+  const [shiftParticipants, setShiftParticipants] = useState('');
+  const [shiftDate, setShiftDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Admin
   const [editingTemplateId, setEditingTemplateId] = useState(null);
@@ -97,7 +108,7 @@ export default function App() {
   const [tplDays, setTplDays] = useState(0);
   const [newRigName, setNewRigName] = useState('');
 
-  // Estados de Auditoría y Analítica (Admin)
+  // Estados de Auditoría (Admin)
   const [adminSelectedInspector, setAdminSelectedInspector] = useState('ALL');
   const [adminDateFrom, setAdminDateFrom] = useState('');
   const [adminDateTo, setAdminDateTo] = useState('');
@@ -110,6 +121,7 @@ export default function App() {
     'Visita general',
     'Inspección / Auditoría',
     'Inducción / Capacitación',
+    'Difusión Temática',
     'Otro'
   ];
 
@@ -208,6 +220,7 @@ export default function App() {
   const loadTemplates = async () => {
     const { data } = await supabase.from('task_templates').select('*').order('days_offset', { ascending: true });
     setTemplates(data || []);
+    setSelectedTplIds((data || []).map(t => t.id));
   };
 
   const loadDailyLogs = async () => {
@@ -247,18 +260,19 @@ export default function App() {
         .from('tasks')
         .select(`
           *,
-          rig_locations!inner (
+          rig_locations (
             id,
             location_name,
             is_current,
             rigs ( id, name )
           )
         `)
-        .eq('rig_locations.is_current', true)
         .order('scheduled_date', { ascending: true });
 
       setCurrentLocation(null);
-      setTasks(data || []);
+      // Mostramos tareas que pertenezcan a la locación actual activa O tareas persistentes no completadas
+      const filtered = (data || []).filter(t => t.rig_locations?.is_current || (t.is_persistent && t.status !== 'Completada'));
+      setTasks(filtered);
     } else {
       const { data: locData } = await supabase
         .from('rig_locations')
@@ -267,8 +281,9 @@ export default function App() {
         .eq('is_current', true)
         .maybeSingle();
 
+      setCurrentLocation(locData || null);
+
       if (locData) {
-        setCurrentLocation(locData);
         const { data: taskData } = await supabase
           .from('tasks')
           .select(`
@@ -279,13 +294,27 @@ export default function App() {
               rigs ( id, name )
             )
           `)
-          .eq('rig_location_id', locData.id)
+          .or(`rig_location_id.eq.${locData.id},and(rig_id.eq.${selectedRig},is_persistent.eq.true)`)
           .order('scheduled_date', { ascending: true });
 
         setTasks(taskData || []);
       } else {
-        setCurrentLocation(null);
-        setTasks([]);
+        // Si el rig no tiene locación activa, traer al menos sus tareas persistentes
+        const { data: persistentData } = await supabase
+          .from('tasks')
+          .select(`
+            *,
+            rig_locations (
+              id,
+              location_name,
+              rigs ( id, name )
+            )
+          `)
+          .eq('rig_id', selectedRig)
+          .eq('is_persistent', true)
+          .order('scheduled_date', { ascending: true });
+
+        setTasks(persistentData || []);
       }
     }
     setLoading(false);
@@ -295,7 +324,27 @@ export default function App() {
     if (session) loadTasks();
   }, [selectedRig, session]);
 
-  // 3. DIARIO DE ACTIVIDADES
+  // 3. DIARIO DE ACTIVIDADES (ALTA / EDICIÓN)
+  const openNewLogModal = () => {
+    setEditingLogId(null);
+    setLogDate(new Date().toISOString().split('T')[0]);
+    setLogRigId(rigs[0]?.id || '');
+    setLogActivityType('Tarea Planificada');
+    setLogActivities('');
+    setLogPending('');
+    setShowLogModal(true);
+  };
+
+  const openEditLogModal = (log) => {
+    setEditingLogId(log.id);
+    setLogDate(log.log_date);
+    setLogRigId(log.rig_id);
+    setLogActivityType(log.activity_type);
+    setLogActivities(log.activities);
+    setLogPending(log.pending_notes || '');
+    setShowLogModal(true);
+  };
+
   const handleSaveDailyLog = async (e) => {
     e.preventDefault();
     if (!logActivities.trim() || !logRigId) return;
@@ -304,23 +353,39 @@ export default function App() {
     const rigName = chosenRig ? chosenRig.name : 'Equipo de Campo';
     const inspectorName = currentUserProfile?.full_name || session.user.email;
 
-    const { error } = await supabase.from('daily_logs').insert({
-      user_id: session.user.id,
-      user_name: inspectorName,
-      log_date: logDate,
-      rig_id: logRigId,
-      rig_name: rigName,
-      activity_type: logActivityType,
-      activities: logActivities.trim(),
-      pending_notes: logPending.trim()
-    });
+    if (editingLogId) {
+      const { error } = await supabase.from('daily_logs').update({
+        log_date: logDate,
+        rig_id: logRigId,
+        rig_name: rigName,
+        activity_type: logActivityType,
+        activities: logActivities.trim(),
+        pending_notes: logPending.trim()
+      }).eq('id', editingLogId);
 
-    if (error) alert('Error al guardar: ' + error.message);
-    else {
-      setLogActivities('');
-      setLogPending('');
-      setShowLogModal(false);
-      loadDailyLogs();
+      if (error) alert('Error al actualizar: ' + error.message);
+      else {
+        setShowLogModal(false);
+        setEditingLogId(null);
+        loadDailyLogs();
+      }
+    } else {
+      const { error } = await supabase.from('daily_logs').insert({
+        user_id: session.user.id,
+        user_name: inspectorName,
+        log_date: logDate,
+        rig_id: logRigId,
+        rig_name: rigName,
+        activity_type: logActivityType,
+        activities: logActivities.trim(),
+        pending_notes: logPending.trim()
+      });
+
+      if (error) alert('Error al guardar: ' + error.message);
+      else {
+        setShowLogModal(false);
+        loadDailyLogs();
+      }
     }
   };
 
@@ -330,7 +395,27 @@ export default function App() {
     loadDailyLogs();
   };
 
-  // 4. EVENTOS Y CONTINGENCIAS
+  // 4. EVENTOS Y CONTINGENCIAS (ALTA / EDICIÓN)
+  const openNewIncModal = () => {
+    setEditingIncId(null);
+    setIncDate(new Date().toISOString().split('T')[0]);
+    setIncRigId(rigs[0]?.id || '');
+    setIncType('Incidente ambiental (derrame)');
+    setIncDesc('');
+    setIncAction('');
+    setShowIncModal(true);
+  };
+
+  const openEditIncModal = (inc) => {
+    setEditingIncId(inc.id);
+    setIncDate(inc.event_date);
+    setIncRigId(inc.rig_id);
+    setIncType(inc.event_type);
+    setIncDesc(inc.description);
+    setIncAction(inc.immediate_action || '');
+    setShowIncModal(true);
+  };
+
   const handleSaveIncident = async (e) => {
     e.preventDefault();
     if (!incDesc.trim() || !incRigId) return;
@@ -338,22 +423,38 @@ export default function App() {
     const chosenRig = rigs.find(r => r.id === incRigId);
     const rigName = chosenRig ? chosenRig.name : 'Equipo de Campo';
 
-    const { error } = await supabase.from('incidents_events').insert({
-      user_id: session.user.id,
-      event_date: incDate,
-      rig_id: incRigId,
-      rig_name: rigName,
-      event_type: incType,
-      description: incDesc.trim(),
-      immediate_action: incAction.trim()
-    });
+    if (editingIncId) {
+      const { error } = await supabase.from('incidents_events').update({
+        event_date: incDate,
+        rig_id: incRigId,
+        rig_name: rigName,
+        event_type: incType,
+        description: incDesc.trim(),
+        immediate_action: incAction.trim()
+      }).eq('id', editingIncId);
 
-    if (error) alert('Error: ' + error.message);
-    else {
-      setIncDesc('');
-      setIncAction('');
-      setShowIncModal(false);
-      loadIncidents();
+      if (error) alert('Error al actualizar: ' + error.message);
+      else {
+        setShowIncModal(false);
+        setEditingIncId(null);
+        loadIncidents();
+      }
+    } else {
+      const { error } = await supabase.from('incidents_events').insert({
+        user_id: session.user.id,
+        event_date: incDate,
+        rig_id: incRigId,
+        rig_name: rigName,
+        event_type: incType,
+        description: incDesc.trim(),
+        immediate_action: incAction.trim()
+      });
+
+      if (error) alert('Error: ' + error.message);
+      else {
+        setShowIncModal(false);
+        loadIncidents();
+      }
     }
   };
 
@@ -363,7 +464,7 @@ export default function App() {
     loadIncidents();
   };
 
-  // 5. BIENES
+  // 5. BIENES Y ENTREGA DE RECURSOS
   const handleSaveAsset = async (e) => {
     e.preventDefault();
     if (!newAssetName.trim()) return;
@@ -372,7 +473,8 @@ export default function App() {
       user_id: session.user.id,
       asset_name: newAssetName.trim(),
       condition_status: newAssetCond,
-      notes: newAssetNotes.trim()
+      notes: newAssetNotes.trim(),
+      is_delivered: true
     });
 
     if (error) alert('Error: ' + error.message);
@@ -382,6 +484,15 @@ export default function App() {
       setShowAssetModal(false);
       loadAssets();
     }
+  };
+
+  const handleToggleAssetDelivered = async (asset) => {
+    const updatedStatus = !asset.is_delivered;
+    await supabase.from('handoff_assets').update({
+      is_delivered: updatedStatus,
+      updated_at: new Date().toISOString()
+    }).eq('id', asset.id);
+    loadAssets();
   };
 
   const handleUpdateAssetStatus = async (id, status, notes) => {
@@ -405,7 +516,6 @@ export default function App() {
       const img = new Image();
       img.crossOrigin = 'Anonymous';
       const timer = setTimeout(() => resolve(null), 800);
-
       img.onload = () => {
         clearTimeout(timer);
         try {
@@ -419,12 +529,10 @@ export default function App() {
           resolve(null);
         }
       };
-
       img.onerror = () => {
         clearTimeout(timer);
         resolve(null);
       };
-
       img.src = imageUrl;
     });
   };
@@ -536,14 +644,15 @@ export default function App() {
         currentY = 20;
       }
 
-      // TABLA 3: ENTREGA DE BIENES
+      // TABLA 3: ENTREGA DE BIENES (Solo los entregados)
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
-      doc.text('3. ACTA DE ENTREGA DE BIENES Y ELEMENTOS (MARBAR S.A.)', 14, currentY);
+      doc.text('3. ACTA DE ENTREGA DE BIENES Y RECURSOS ENTREGADOS (MARBAR S.A.)', 14, currentY);
       currentY += 3;
 
-      const tableDataAssets = assets.map((a) => [
+      const deliveredAssets = assets.filter(a => a.is_delivered !== false);
+      const tableDataAssets = deliveredAssets.map((a) => [
         a.asset_name,
         a.condition_status,
         a.notes || 'En condiciones normales'
@@ -551,8 +660,8 @@ export default function App() {
 
       autoTable(doc, {
         startY: currentY,
-        head: [['Elemento / Recurso', 'Estado de Conservación', 'Observaciones / Kilometraje / Accesorios']],
-        body: tableDataAssets.length > 0 ? tableDataAssets : [['-', '-', 'Sin elementos registrados']],
+        head: [['Elemento / Recurso Entregado', 'Estado de Conservación', 'Observaciones / Kilometraje / Accesorios']],
+        body: tableDataAssets.length > 0 ? tableDataAssets : [['-', '-', 'Sin elementos entregados']],
         theme: 'grid',
         headStyles: { fillColor: [71, 85, 105], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
         styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' },
@@ -591,7 +700,7 @@ export default function App() {
 
   const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
 
-  // Apertura del Modal de Gestión de Tarea
+  // Modal Gestión y Cierre de Tarea
   const openTaskEditModal = (task) => {
     setSelectedTaskForEdit(task);
     setEditStatus(task.status || 'En Progreso');
@@ -600,7 +709,6 @@ export default function App() {
     setEditClosedByName(task.completed_by_name || currentUserProfile?.full_name || session?.user?.email || '');
   };
 
-  // Guardado de Estado, Comentarios, Fecha de Cierre y Trazabilidad
   const handleSaveTaskStatusAndDetails = async (e) => {
     e.preventDefault();
     if (!selectedTaskForEdit) return;
@@ -635,44 +743,145 @@ export default function App() {
     setIsSavingTaskModal(false);
   };
 
+  // Registro de Asistencia por Turnos para Tareas de Difusión
+  const openShiftModal = (task) => {
+    setShiftTask(task);
+    setShiftName('Turno Mañana / Turno 1');
+    setShiftParticipants('');
+    setShiftDate(new Date().toISOString().split('T')[0]);
+  };
+
+  const handleSaveShiftEntry = async (e) => {
+    e.preventDefault();
+    if (!shiftTask || !shiftParticipants.trim()) return;
+
+    const currentShifts = Array.isArray(shiftTask.shifts_data) ? shiftTask.shifts_data : [];
+    const newEntry = {
+      id: Date.now().toString(),
+      shift_name: shiftName,
+      date: shiftDate,
+      trainer_name: currentUserProfile?.full_name || session.user.email,
+      participants: shiftParticipants.trim()
+    };
+
+    const updatedShifts = [...currentShifts, newEntry];
+
+    const { error } = await supabase.from('tasks').update({
+      shifts_data: updatedShifts
+    }).eq('id', shiftTask.id);
+
+    if (error) {
+      alert('Error al guardar registro de difusión: ' + error.message);
+    } else {
+      setTasks(tasks.map(t => t.id === shiftTask.id ? { ...t, shifts_data: updatedShifts } : t));
+      setShiftTask(null);
+    }
+  };
+
   const handleDeleteTask = async (taskId) => {
     if (!confirm('¿Deseas eliminar esta tarea?')) return;
     await supabase.from('tasks').delete().eq('id', taskId);
     setTasks(tasks.filter(t => t.id !== taskId));
   };
 
-  const handleMoveRig = async (e) => {
+  // Mover Equipo con Selección Manual del Catálogo Maestro
+  const handleOpenMoveModal = () => {
+    setMoveRigId(selectedRig === 'ALL' ? rigs[0]?.id : selectedRig);
+    setSelectedTplIds(templates.map(t => t.id)); // Marcadas todas por defecto
+    setNewLocName('');
+    setNewLocDate(new Date().toISOString().split('T')[0]);
+    setShowMoveModal(true);
+  };
+
+  const toggleTemplateSelection = (id) => {
+    if (selectedTplIds.includes(id)) {
+      setSelectedTplIds(selectedTplIds.filter(x => x !== id));
+    } else {
+      setSelectedTplIds([...selectedTplIds, id]);
+    }
+  };
+
+  const handleMoveRigWithSelectedTemplates = async (e) => {
     e.preventDefault();
     const targetRigId = selectedRig === 'ALL' ? moveRigId : selectedRig;
-    if (!targetRigId || !newLocName) return;
+    if (!targetRigId || !newLocName.trim()) return;
 
-    await supabase.rpc('set_rig_new_location', {
-      p_rig_id: targetRigId,
-      p_location_name: newLocName,
-      p_start_date: newLocDate
-    });
+    setLoading(true);
 
-    setNewLocName('');
+    // 1. Cerrar locación anterior del rig
+    await supabase
+      .from('rig_locations')
+      .update({ is_current: false, end_date: newLocDate })
+      .eq('rig_id', targetRigId)
+      .eq('is_current', true);
+
+    // 2. Crear nueva locación activa
+    const { data: newLoc, error: locError } = await supabase
+      .from('rig_locations')
+      .insert({
+        rig_id: targetRigId,
+        location_name: newLocName.trim(),
+        start_date: newLocDate,
+        is_current: true
+      })
+      .select()
+      .single();
+
+    if (locError) {
+      alert('Error al crear locación: ' + locError.message);
+      setLoading(false);
+      return;
+    }
+
+    // 3. Crear ÚNICAMENTE las tareas seleccionadas por el usuario
+    const chosenTemplates = templates.filter(t => selectedTplIds.includes(t.id));
+    if (chosenTemplates.length > 0) {
+      const spud = new Date(newLocDate);
+      const newTasks = chosenTemplates.map(tpl => {
+        const scheduled = new Date(spud);
+        scheduled.setDate(scheduled.getDate() + (tpl.days_offset || 0));
+        return {
+          rig_location_id: newLoc.id,
+          title: tpl.title,
+          description: tpl.description || '',
+          scheduled_date: scheduled.toISOString().split('T')[0],
+          status: 'Pendiente'
+        };
+      });
+
+      await supabase.from('tasks').insert(newTasks);
+    }
+
     setShowMoveModal(false);
     loadTasks();
   };
 
+  // Crear Tarea Eventual o Difusión Persistente
   const handleCreateExtraTask = async (e) => {
     e.preventDefault();
-    if (!currentLocation || !taskTitle) return;
+    const targetRig = selectedRig === 'ALL' ? rigs[0]?.id : selectedRig;
+    if (!targetRig || !taskTitle.trim()) return;
 
-    await supabase.from('tasks').insert({
-      rig_location_id: currentLocation.id,
-      title: taskTitle,
-      description: taskDesc,
+    const payload = {
+      title: taskTitle.trim(),
+      description: taskDesc.trim(),
       scheduled_date: taskDate,
-      status: 'Pendiente'
-    });
+      status: 'Pendiente',
+      is_persistent: taskIsPersistent,
+      rig_id: targetRig,
+      rig_location_id: currentLocation?.id || null
+    };
 
-    setTaskTitle('');
-    setTaskDesc('');
-    setShowTaskModal(false);
-    loadTasks();
+    const { error } = await supabase.from('tasks').insert(payload);
+    if (error) {
+      alert('Error al crear la tarea: ' + error.message);
+    } else {
+      setTaskTitle('');
+      setTaskDesc('');
+      setTaskIsPersistent(false);
+      setShowTaskModal(false);
+      loadTasks();
+    }
   };
 
   // Histórico
@@ -694,13 +903,28 @@ export default function App() {
   }, [activeTab, session]);
 
   useEffect(() => {
-    if (!selectedHistoryLoc) return;
+    if (!selectedHistoryLoc) {
+      setHistoryTasks([]);
+      return;
+    }
     async function loadPastTasks() {
       const { data } = await supabase.from('tasks').select('*').eq('rig_location_id', selectedHistoryLoc).order('scheduled_date', { ascending: true });
       setHistoryTasks(data || []);
     }
     loadPastTasks();
   }, [selectedHistoryLoc]);
+
+  // Borrado de Locaciones Históricas (Solo Administrador)
+  const handleDeleteHistoricLocation = async () => {
+    if (!selectedHistoryLoc || !isAdmin) return;
+    if (!confirm('¿Estás seguro de eliminar este pozo archivado del historial? Se borrarán también sus registros asociados.')) return;
+
+    await supabase.from('tasks').delete().eq('rig_location_id', selectedHistoryLoc);
+    await supabase.from('rig_locations').delete().eq('id', selectedHistoryLoc);
+    
+    setSelectedHistoryLoc('');
+    loadPastLocations();
+  };
 
   // Admin Plantillas
   const handleSaveTemplate = async (e) => {
@@ -757,13 +981,14 @@ export default function App() {
     if (selectedRig === rigId) setSelectedRig('ALL');
   };
 
-  // Cálculos de guardia individual (14x14)
+  // Métricas y Cálculos
+  const activeRigsCount = new Set(tasks.map(t => t.rig_locations?.rigs?.id).filter(Boolean)).size || rigs.length;
+
   const dtmCount = new Set(dailyLogs.filter(l => l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
   const drillCount = dailyLogs.filter(l => l.activity_type === 'Simulacro').length;
   const plannedCount = dailyLogs.filter(l => l.activity_type === 'Tarea Planificada').length;
   const meetingCount = dailyLogs.filter(l => l.activity_type === 'Reunión').length;
 
-  // CÁLCULOS ANALÍTICOS EXCLUSIVOS PARA EL PANEL ADMIN
   const filteredAdminLogs = dailyLogs.filter((log) => {
     if (adminSelectedInspector !== 'ALL' && log.user_id !== adminSelectedInspector) return false;
     if (adminDateFrom && log.log_date < adminDateFrom) return false;
@@ -999,7 +1224,12 @@ export default function App() {
         {/* OPERACIONES */}
         {activeTab === 'operaciones' && (
           <>
-            <section className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <section className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+              <div className="bg-slate-900 text-white p-3 rounded-xl shadow-sm col-span-2 sm:col-span-1">
+                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider block">Equipos Activos</span>
+                <span className="text-xl font-black">{activeRigsCount}</span>
+                <span className="text-[10px] text-slate-400 block">en operación</span>
+              </div>
               <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Planificadas</span>
                 <span className="text-xl font-black text-slate-800">{totalTasksCount}</span>
@@ -1035,10 +1265,7 @@ export default function App() {
                 </label>
                 {isAdmin && rigs.length > 0 && (
                   <button
-                    onClick={() => {
-                      setMoveRigId(selectedRig === 'ALL' ? rigs[0]?.id : selectedRig);
-                      setShowMoveModal(true);
-                    }}
+                    onClick={handleOpenMoveModal}
                     className="flex items-center gap-1 text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold py-1.5 px-3 rounded-lg transition"
                   >
                     <Truck className="w-3.5 h-3.5" />
@@ -1084,79 +1311,121 @@ export default function App() {
                 ))}
               </div>
 
-              {currentLocation && (
-                <button
-                  onClick={() => setShowTaskModal(true)}
-                  className="flex items-center gap-1 text-xs bg-slate-800 hover:bg-slate-700 text-white font-semibold py-1.5 px-3 rounded-lg transition ml-auto"
-                >
-                  <PlusCircle className="w-3.5 h-3.5" />
-                  + Tarea Eventual
-                </button>
-              )}
+              <button
+                onClick={() => setShowTaskModal(true)}
+                className="flex items-center gap-1 text-xs bg-slate-800 hover:bg-slate-700 text-white font-semibold py-1.5 px-3 rounded-lg transition ml-auto"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                + Tarea Eventual / Difusión
+              </button>
             </section>
 
-            {/* Modal Mover */}
+            {/* MODAL MOVER EQUIPO CON SELECCIÓN DE ACTIVIDADES */}
             {showMoveModal && (
-              <form onSubmit={handleMoveRig} className="bg-white p-5 rounded-xl shadow-lg border-2 border-amber-500 space-y-3">
-                <h3 className="text-sm font-bold text-slate-800">Registrar Traslado a Nuevo Pozo</h3>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Equipo que se traslada:</label>
-                  <select
-                    value={moveRigId}
-                    onChange={(e) => setMoveRigId(e.target.value)}
-                    className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
-                  >
-                    {rigs.map((r) => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
-                    ))}
-                  </select>
+              <form onSubmit={handleMoveRigWithSelectedTemplates} className="bg-white p-5 rounded-xl shadow-2xl border-2 border-amber-500 space-y-4 max-h-[85vh] overflow-y-auto">
+                <div className="flex justify-between items-center border-b pb-2">
+                  <h3 className="text-sm font-bold text-slate-800">Registrar Traslado a Nuevo Pozo y Seleccionar Tareas</h3>
+                  <button type="button" onClick={() => setShowMoveModal(false)} className="text-slate-400 hover:text-slate-700">
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Nombre del Pozo / Locación:</label>
-                  <input
-                    type="text"
-                    placeholder="Ej: Pozo Loma Campana LC-205"
-                    value={newLocName}
-                    onChange={(e) => setNewLocName(e.target.value)}
-                    required
-                    className="w-full text-sm p-2 border border-slate-300 rounded-lg"
-                  />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Equipo que se traslada:</label>
+                    <select
+                      value={moveRigId}
+                      onChange={(e) => setMoveRigId(e.target.value)}
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
+                    >
+                      {rigs.map((r) => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Nombre del Pozo / Locación:</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: Pozo Loma Campana LC-205"
+                      value={newLocName}
+                      onChange={(e) => setNewLocName(e.target.value)}
+                      required
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de Inicio / Spud-in:</label>
+                    <input
+                      type="date"
+                      value={newLocDate}
+                      onChange={(e) => setNewLocDate(e.target.value)}
+                      required
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg"
+                    />
+                  </div>
                 </div>
+
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de Inicio / Spud-in:</label>
-                  <input
-                    type="date"
-                    value={newLocDate}
-                    onChange={(e) => setNewLocDate(e.target.value)}
-                    required
-                    className="w-full text-sm p-2 border border-slate-300 rounded-lg"
-                  />
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Actividades del Catálogo Maestro para este pozo ({selectedTplIds.length}/{templates.length}):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTplIds(selectedTplIds.length === templates.length ? [] : templates.map(t => t.id))}
+                      className="text-[11px] text-amber-600 hover:underline font-semibold"
+                    >
+                      {selectedTplIds.length === templates.length ? 'Desmarcar Todas' : 'Marcar Todas'}
+                    </button>
+                  </div>
+
+                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50/50 p-1">
+                    {templates.map((tpl) => {
+                      const isSelected = selectedTplIds.includes(tpl.id);
+                      return (
+                        <label key={tpl.id} className="flex items-center gap-2 p-2 hover:bg-amber-50/40 cursor-pointer text-xs rounded transition">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleTemplateSelection(tpl.id)}
+                            className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4"
+                          />
+                          <div className="flex-1">
+                            <span className="font-semibold text-slate-800">{tpl.title}</span>
+                            <span className="text-[10px] text-slate-400 block">{tpl.stage} (Día +{tpl.days_offset})</span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="flex justify-end gap-2 pt-2">
+
+                <div className="flex justify-end gap-2 pt-2 border-t">
                   <button type="button" onClick={() => setShowMoveModal(false)} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">
                     Cancelar
                   </button>
-                  <button type="submit" className="px-4 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition">
-                    Generar Tareas para el Pozo
+                  <button type="submit" disabled={loading} className="px-4 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition disabled:opacity-50">
+                    {loading ? 'Generando...' : 'Generar Tareas Seleccionadas'}
                   </button>
                 </div>
               </form>
             )}
 
-            {/* Modal Tarea Eventual */}
+            {/* MODAL TAREA EVENTUAL O DIFUSIÓN PERSISTENTE */}
             {showTaskModal && (
               <form onSubmit={handleCreateExtraTask} className="bg-white p-5 rounded-xl shadow-lg border border-slate-300 space-y-3">
-                <h3 className="text-sm font-bold text-slate-800">Agregar Tarea Eventual</h3>
+                <h3 className="text-sm font-bold text-slate-800">Agregar Tarea Eventual / Campaña de Difusión</h3>
                 <input
                   type="text"
-                  placeholder="Título de la tarea"
+                  placeholder="Título de la tarea o tema de difusión"
                   value={taskTitle}
                   onChange={(e) => setTaskTitle(e.target.value)}
                   required
                   className="w-full text-sm p-2 border border-slate-300 rounded-lg focus:outline-none"
                 />
                 <textarea
-                  placeholder="Observaciones..."
+                  placeholder="Alcance, instrucciones o detalles..."
                   value={taskDesc}
                   onChange={(e) => setTaskDesc(e.target.value)}
                   className="w-full text-sm p-2 border border-slate-300 rounded-lg"
@@ -1172,6 +1441,21 @@ export default function App() {
                     className="w-full text-sm p-2 border border-slate-300 rounded-lg"
                   />
                 </div>
+
+                <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="isPersistentCheck"
+                    checked={taskIsPersistent}
+                    onChange={(e) => setTaskIsPersistent(e.target.checked)}
+                    className="mt-0.5 rounded text-amber-600 focus:ring-amber-500"
+                  />
+                  <label htmlFor="isPersistentCheck" className="text-xs text-amber-900 cursor-pointer">
+                    <strong className="block">Difusión Persistente (No retirar al mover el equipo)</strong>
+                    La tarea permanecerá activa asociada al equipo hasta que se completen las difusiones de todos los turnos.
+                  </label>
+                </div>
+
                 <div className="flex justify-end gap-2 pt-2">
                   <button type="button" onClick={() => setShowTaskModal(false)} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">
                     Cancelar
@@ -1183,7 +1467,7 @@ export default function App() {
               </form>
             )}
 
-            {/* MODAL PARA EDITAR ESTADO, COMENTARIOS Y FECHA DE CIERRE */}
+            {/* MODAL GESTIÓN / CIERRE DE TAREA */}
             {selectedTaskForEdit && (
               <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                 <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
@@ -1192,11 +1476,7 @@ export default function App() {
                       <h3 className="font-bold text-sm sm:text-base">Gestionar / Actualizar Tarea</h3>
                       <p className="text-xs text-slate-400">MARBAR S.A. - Trazabilidad Operativa</p>
                     </div>
-                    <button 
-                      type="button" 
-                      onClick={() => setSelectedTaskForEdit(null)}
-                      className="text-slate-400 hover:text-white p-1 rounded-lg"
-                    >
+                    <button type="button" onClick={() => setSelectedTaskForEdit(null)} className="text-slate-400 hover:text-white p-1">
                       <X className="w-5 h-5" />
                     </button>
                   </div>
@@ -1230,7 +1510,7 @@ export default function App() {
                       <textarea
                         value={editComments}
                         onChange={(e) => setEditComments(e.target.value)}
-                        placeholder="Ingresa qué se inspeccionó, hallazgos, repuestos pedidos o cómo se solucionó..."
+                        placeholder="Ingresa qué se inspeccionó, hallazgos o cómo se resolvió..."
                         rows={3}
                         required={editStatus === 'Completada'}
                         className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
@@ -1246,7 +1526,7 @@ export default function App() {
 
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            Fecha en que se cerró/completó la tarea:
+                            Fecha en que se completó el trabajo:
                           </label>
                           <input
                             type="date"
@@ -1255,9 +1535,6 @@ export default function App() {
                             required
                             className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
                           />
-                          <span className="text-[10px] text-slate-500 mt-1 block">
-                            (Permite indicar fechas pasadas para cargar tareas históricas o ya ejecutadas)
-                          </span>
                         </div>
 
                         <div>
@@ -1274,30 +1551,85 @@ export default function App() {
                               isAdmin ? 'bg-white text-slate-900' : 'bg-slate-100 text-slate-500 cursor-not-allowed'
                             }`}
                           />
-                          <span className="text-[10px] text-slate-500 mt-1 block">
-                            {isAdmin 
-                              ? 'Como administrador puedes ingresar quién cerró la tarea originalmente en campo.'
-                              : 'Se completa con tu usuario activo.'}
-                          </span>
                         </div>
                       </div>
                     )}
 
                     <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedTaskForEdit(null)}
-                        disabled={isSavingTaskModal}
-                        className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
-                      >
+                      <button type="button" onClick={() => setSelectedTaskForEdit(null)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">
                         Cancelar
                       </button>
-                      <button
-                        type="submit"
-                        disabled={isSavingTaskModal}
-                        className="px-5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition disabled:opacity-50 shadow-sm"
-                      >
+                      <button type="submit" disabled={isSavingTaskModal} className="px-5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition disabled:opacity-50">
                         {isSavingTaskModal ? 'Guardando...' : 'Guardar Cambios'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL REGISTRAR ASISTENCIA DE DIFUSIÓN POR TURNO */}
+            {shiftTask && (
+              <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+                  <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+                    <div>
+                      <h3 className="font-bold text-sm sm:text-base">Registrar Difusión por Turno</h3>
+                      <p className="text-xs text-slate-400">{shiftTask.title}</p>
+                    </div>
+                    <button type="button" onClick={() => setShiftTask(null)} className="text-slate-400 hover:text-white">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveShiftEntry} className="p-5 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Turno que participó:</label>
+                        <select
+                          value={shiftName}
+                          onChange={(e) => setShiftName(e.target.value)}
+                          className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
+                        >
+                          <option value="Turno Mañana / Turno 1">Turno Mañana / Turno 1</option>
+                          <option value="Turno Tarde / Turno 2">Turno Tarde / Turno 2</option>
+                          <option value="Turno Noche / Turno 3">Turno Noche / Turno 3</option>
+                          <option value="Personal de Mantenimiento">Personal de Mantenimiento</option>
+                          <option value="Compañías Contratistas">Compañías Contratistas</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Fecha de Realización:</label>
+                        <input
+                          type="date"
+                          value={shiftDate}
+                          onChange={(e) => setShiftDate(e.target.value)}
+                          required
+                          className="w-full text-sm p-2 border border-slate-300 rounded-lg"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Personal Asistente / Participantes:
+                      </label>
+                      <textarea
+                        value={shiftParticipants}
+                        onChange={(e) => setShiftParticipants(e.target.value)}
+                        placeholder="Nombres, DNI o puestos de los asistentes en este turno..."
+                        rows={4}
+                        required
+                        className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2 border-t">
+                      <button type="button" onClick={() => setShiftTask(null)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">
+                        Cancelar
+                      </button>
+                      <button type="submit" className="px-5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg">
+                        Guardar Asistencia de Turno
                       </button>
                     </div>
                   </form>
@@ -1320,6 +1652,7 @@ export default function App() {
                   const rigName = task.rig_locations?.rigs?.name;
                   const locName = task.rig_locations?.location_name;
                   const isLocked = task.status === 'Completada' && !isAdmin && task.completed_by !== session.user.id;
+                  const shiftsList = Array.isArray(task.shifts_data) ? task.shifts_data : [];
 
                   return (
                     <div 
@@ -1332,15 +1665,25 @@ export default function App() {
                         'border-slate-200'
                       }`}
                     >
-                      {selectedRig === 'ALL' && (
-                        <div className="flex items-center gap-2 mb-2 pb-1.5 border-b border-slate-100 text-xs font-semibold text-slate-600">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-100 text-xs font-semibold text-slate-600">
+                        <div className="flex items-center gap-2">
                           <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded font-bold">
                             🚜 {rigName || 'Equipo'}
                           </span>
-                          <span className="text-slate-400">|</span>
-                          <span className="text-slate-600 truncate max-w-[200px]">📍 {locName}</span>
+                          {locName && (
+                            <>
+                              <span className="text-slate-400">|</span>
+                              <span className="text-slate-600 truncate max-w-[200px]">📍 {locName}</span>
+                            </>
+                          )}
                         </div>
-                      )}
+
+                        {task.is_persistent && (
+                          <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded-full border border-purple-200">
+                            📢 Campaña Persistente (Multilocación)
+                          </span>
+                        )}
+                      </div>
 
                       <div className="flex justify-between items-start gap-2">
                         <div className="flex-1">
@@ -1360,7 +1703,7 @@ export default function App() {
                             <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{task.description}</p>
                           )}
 
-                          {/* VISUALIZACIÓN DE COMENTARIOS */}
+                          {/* COMENTARIOS */}
                           {task.comments && (
                             <div className="mt-2 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-slate-700">
                               <span className="font-bold text-slate-900 flex items-center gap-1 mb-0.5 text-[11px] uppercase tracking-wider">
@@ -1368,6 +1711,41 @@ export default function App() {
                                 Comentarios / Hallazgos:
                               </span>
                               <p className="whitespace-pre-line leading-relaxed">{task.comments}</p>
+                            </div>
+                          )}
+
+                          {/* TURNOS DE DIFUSIÓN REGISTRADOS */}
+                          {task.is_persistent && (
+                            <div className="mt-2.5 bg-purple-50/60 p-2.5 rounded-lg border border-purple-200 text-xs space-y-1.5">
+                              <div className="flex justify-between items-center">
+                                <span className="font-bold text-purple-900 flex items-center gap-1 text-[11px] uppercase tracking-wider">
+                                  <Users className="w-3.5 h-3.5 text-purple-600" />
+                                  Turnos con Difusión Realizada ({shiftsList.length}):
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => openShiftModal(task)}
+                                  className="text-[11px] font-bold text-purple-700 hover:text-purple-900 bg-white px-2 py-0.5 rounded border border-purple-300 shadow-xs"
+                                >
+                                  + Registrar Turno
+                                </button>
+                              </div>
+
+                              {shiftsList.length === 0 ? (
+                                <p className="text-[11px] text-purple-600 italic">No se han registrado turnos aún.</p>
+                              ) : (
+                                <div className="space-y-1 pt-1">
+                                  {shiftsList.map((s, sIdx) => (
+                                    <div key={sIdx} className="bg-white p-2 rounded border border-purple-100 text-[11px]">
+                                      <div className="flex justify-between font-semibold text-slate-800">
+                                        <span>👥 {s.shift_name} ({s.date})</span>
+                                        <span className="text-slate-500 text-[10px]">Por: {s.trainer_name}</span>
+                                      </div>
+                                      <p className="text-slate-600 mt-0.5"><strong className="text-slate-700">Participantes:</strong> {s.participants}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1431,7 +1809,7 @@ export default function App() {
           </>
         )}
 
-        {/* PESTAÑA: DIARIO DE GUARDIA (14x14) */}
+        {/* DIARIO DE GUARDIA (14x14) */}
         {activeTab === 'guardia' && (
           <div className="space-y-4">
             <section className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -1470,7 +1848,7 @@ export default function App() {
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setShowLogModal(true)}
+                    onClick={openNewLogModal}
                     className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-3 rounded-lg transition shadow-sm"
                   >
                     <Plus className="w-4 h-4" />
@@ -1510,7 +1888,14 @@ export default function App() {
 
             {showLogModal && (
               <form onSubmit={handleSaveDailyLog} className="bg-white p-5 rounded-xl shadow-lg border-2 border-amber-500 space-y-3">
-                <h3 className="text-sm font-bold text-slate-800">Registrar Actividad de Campo</h3>
+                <div className="flex justify-between items-center">
+                  <h3 className="text-sm font-bold text-slate-800">
+                    {editingLogId ? 'Editar Actividad del Diario' : 'Registrar Actividad de Campo'}
+                  </h3>
+                  <button type="button" onClick={() => setShowLogModal(false)} className="text-slate-400 hover:text-slate-700">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
@@ -1579,7 +1964,7 @@ export default function App() {
                     Cancelar
                   </button>
                   <button type="submit" className="px-4 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition">
-                    Guardar en Mi Diario
+                    {editingLogId ? 'Actualizar Actividad' : 'Guardar en Mi Diario'}
                   </button>
                 </div>
               </form>
@@ -1609,9 +1994,14 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] text-slate-400">Por: <strong>{log.user_name}</strong></span>
                         {(log.user_id === session.user.id || isAdmin) && (
-                          <button onClick={() => handleDeleteDailyLog(log.id)} className="text-slate-300 hover:text-red-500 p-1">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <>
+                            <button onClick={() => openEditLogModal(log)} className="text-slate-400 hover:text-amber-600 p-1" title="Editar actividad">
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleDeleteDailyLog(log.id)} className="text-slate-300 hover:text-red-500 p-1" title="Eliminar actividad">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -1632,7 +2022,7 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA: CONTINGENCIAS */}
+        {/* CONTINGENCIAS */}
         {activeTab === 'contingencias' && (
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
@@ -1647,7 +2037,7 @@ export default function App() {
               </div>
 
               <button
-                onClick={() => setShowIncModal(true)}
+                onClick={openNewIncModal}
                 className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3.5 rounded-lg transition shadow-sm"
               >
                 <Plus className="w-4 h-4" />
@@ -1657,7 +2047,15 @@ export default function App() {
 
             {showIncModal && (
               <form onSubmit={handleSaveIncident} className="bg-white p-5 rounded-xl shadow-lg border-2 border-red-500 space-y-3">
-                <h3 className="text-sm font-bold text-slate-800">Cargar Contingencia / Suceso en Campo</h3>
+                <div className="flex justify-between items-center">
+                  <h3 className="text-sm font-bold text-slate-800">
+                    {editingIncId ? 'Editar Contingencia' : 'Cargar Contingencia / Suceso en Campo'}
+                  </h3>
+                  <button type="button" onClick={() => setShowIncModal(false)} className="text-slate-400 hover:text-slate-700">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha del Suceso:</label>
@@ -1725,7 +2123,7 @@ export default function App() {
                     Cancelar
                   </button>
                   <button type="submit" className="px-4 py-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition">
-                    Guardar Contingencia
+                    {editingIncId ? 'Actualizar Contingencia' : 'Guardar Contingencia'}
                   </button>
                 </div>
               </form>
@@ -1750,9 +2148,14 @@ export default function App() {
                         <span className="text-xs text-slate-500">📅 {inc.event_date}</span>
                       </div>
                       {(inc.user_id === session.user.id || isAdmin) && (
-                        <button onClick={() => handleDeleteIncident(inc.id)} className="text-slate-300 hover:text-red-500 p-1">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => openEditIncModal(inc)} className="text-slate-400 hover:text-red-600 p-1" title="Editar evento">
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => handleDeleteIncident(inc.id)} className="text-slate-300 hover:text-red-500 p-1" title="Eliminar evento">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       )}
                     </div>
                     <p className="text-xs text-slate-800 font-medium leading-relaxed">{inc.description}</p>
@@ -1768,7 +2171,7 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA: BIENES Y ELEMENTOS */}
+        {/* BIENES Y ELEMENTOS */}
         {activeTab === 'elementos' && (
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
@@ -1778,7 +2181,7 @@ export default function App() {
                   Acta de Entrega de Bienes y Recursos (MARBAR S.A.)
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Control de estado de camioneta, tablet, celular y herramientas de relevo.
+                  Control de estado de camioneta, herramientas y checkbox para marcar cuáles se entregan en mano al relevo.
                 </p>
               </div>
 
@@ -1840,29 +2243,41 @@ export default function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {assets.map((asset) => (
-                <div key={asset.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-2.5">
-                  <div className="flex justify-between items-start">
+                <div key={asset.id} className={`bg-white p-4 rounded-xl shadow-sm border transition ${asset.is_delivered !== false ? 'border-slate-200' : 'border-slate-200 opacity-60 bg-slate-50'}`}>
+                  <div className="flex justify-between items-start mb-2">
                     <span className="font-bold text-slate-900 text-sm">{asset.asset_name}</span>
                     <button onClick={() => handleDeleteAsset(asset.id)} className="text-slate-300 hover:text-red-500 p-1">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-medium text-slate-500">Condición:</label>
-                    <select
-                      value={asset.condition_status}
-                      onChange={(e) => handleUpdateAssetStatus(asset.id, e.target.value, asset.notes)}
-                      className={`text-xs font-bold rounded-lg px-2.5 py-1 border focus:outline-none ${
-                        asset.condition_status === 'Bueno / Operativo' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' :
-                        asset.condition_status === 'Regular' ? 'bg-amber-50 text-amber-700 border-amber-300' :
-                        'bg-red-50 text-red-700 border-red-300'
-                      }`}
-                    >
-                      <option value="Bueno / Operativo">Bueno / Operativo</option>
-                      <option value="Regular">Regular</option>
-                      <option value="Con Observación / Dañado">Con Observación / Dañado</option>
-                    </select>
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium text-slate-500">Condición:</label>
+                      <select
+                        value={asset.condition_status}
+                        onChange={(e) => handleUpdateAssetStatus(asset.id, e.target.value, asset.notes)}
+                        className={`text-xs font-bold rounded-lg px-2.5 py-1 border focus:outline-none ${
+                          asset.condition_status === 'Bueno / Operativo' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' :
+                          asset.condition_status === 'Regular' ? 'bg-amber-50 text-amber-700 border-amber-300' :
+                          'bg-red-50 text-red-700 border-red-300'
+                        }`}
+                      >
+                        <option value="Bueno / Operativo">Bueno / Operativo</option>
+                        <option value="Regular">Regular</option>
+                        <option value="Con Observación / Dañado">Con Observación / Dañado</option>
+                      </select>
+                    </div>
+
+                    <label className="flex items-center gap-1.5 text-xs font-bold cursor-pointer text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={asset.is_delivered !== false}
+                        onChange={() => handleToggleAssetDelivered(asset)}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{asset.is_delivered !== false ? '✅ Se entrega en relevo' : '❌ No se entrega'}</span>
+                    </label>
                   </div>
 
                   <div>
@@ -1883,15 +2298,27 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA: HISTÓRICO */}
+        {/* HISTÓRICO */}
         {activeTab === 'historico' && (
           <div className="space-y-4">
             <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
-              <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
-                <BarChart3 className="w-5 h-5 text-amber-600" />
-                <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
-                  Historial de Pozos Cerrados
-                </h2>
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-amber-600" />
+                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                    Historial de Pozos Cerrados
+                  </h2>
+                </div>
+                {isAdmin && selectedHistoryLoc && (
+                  <button
+                    onClick={handleDeleteHistoricLocation}
+                    className="flex items-center gap-1 text-xs text-red-600 hover:text-white hover:bg-red-600 border border-red-200 py-1 px-2.5 rounded-lg transition"
+                    title="Eliminar este pozo y sus tareas archivadas"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Borrar Pozo Histórico
+                  </button>
+                )}
               </div>
 
               {pastLocations.length === 0 ? (
@@ -1942,7 +2369,7 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA: ADMIN */}
+        {/* ADMIN */}
         {activeTab === 'admin' && isAdmin && (
           <div className="space-y-6">
             <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
