@@ -881,52 +881,66 @@ export default function App() {
     }
   };
 
-  // Lanzar Difusión Masiva desde Panel Admin
+  // Lanzar Difusión Masiva desde Panel Admin y guardarla en el Catálogo
   const handleCreateBroadcastTask = async (e) => {
     e.preventDefault();
-    if (!broadcastTitle.trim() || broadcastSelectedRigs.length === 0) {
-      alert('Ingresa el título de la difusión y selecciona al menos un equipo.');
+    if (!broadcastTitle.trim()) {
+      alert('Ingresa el título de la difusión.');
       return;
     }
 
     setBroadcastLoading(true);
 
     try {
-      // Buscar las locaciones activas de los equipos seleccionados
-      const { data: activeLocs } = await supabase
-        .from('rig_locations')
-        .select('id, rig_id')
-        .in('rig_id', broadcastSelectedRigs)
-        .eq('is_current', true);
-
-      const locMap = {};
-      (activeLocs || []).forEach(loc => {
-        locMap[loc.rig_id] = loc.id;
+      // 1. Guardar la difusión en task_templates (Catálogo Maestro) para que siempre quede disponible
+      const { error: tplError } = await supabase.from('task_templates').insert({
+        title: broadcastTitle.trim(),
+        description: broadcastDesc.trim() || 'Campaña / Difusión Temática',
+        stage: 'Difusión / Campaña Especial',
+        days_offset: 0
       });
 
-      // Crear tarea persistente para cada equipo seleccionado
-      const tasksToInsert = broadcastSelectedRigs.map(rigId => ({
-        rig_id: rigId,
-        rig_location_id: locMap[rigId] || null,
-        title: broadcastTitle.trim(),
-        description: broadcastDesc.trim(),
-        scheduled_date: broadcastDate,
-        status: 'Pendiente',
-        is_persistent: true,
-        shifts_data: []
-      }));
+      if (tplError) throw tplError;
 
-      const { error } = await supabase.from('tasks').insert(tasksToInsert);
-      if (error) throw error;
+      // 2. Si seleccionaste equipos, asignarla de inmediato a cada uno de ellos
+      if (broadcastSelectedRigs.length > 0) {
+        const { data: activeLocs } = await supabase
+          .from('rig_locations')
+          .select('id, rig_id')
+          .in('rig_id', broadcastSelectedRigs)
+          .eq('is_current', true);
 
-      alert(`¡Campaña de difusión asignada con éxito a ${broadcastSelectedRigs.length} equipo(s)!`);
+        const locMap = {};
+        (activeLocs || []).forEach(loc => {
+          locMap[loc.rig_id] = loc.id;
+        });
+
+        const tasksToInsert = broadcastSelectedRigs.map(rigId => ({
+          rig_id: rigId,
+          rig_location_id: locMap[rigId] || null,
+          title: broadcastTitle.trim(),
+          description: broadcastDesc.trim(),
+          scheduled_date: broadcastDate,
+          status: 'Pendiente',
+          is_persistent: true,
+          shifts_data: []
+        }));
+
+        const { error: taskError } = await supabase.from('tasks').insert(tasksToInsert);
+        if (taskError) throw taskError;
+      }
+
+      alert('¡Difusión guardada en el Catálogo Maestro y asignada a los equipos seleccionados!');
       setBroadcastTitle('');
       setBroadcastDesc('');
       setBroadcastSelectedRigs([]);
+      
+      // 3. Recargar plantillas y tareas activas
+      loadTemplates();
       loadTasks();
     } catch (err) {
       console.error(err);
-      alert('Error al asignar difusión: ' + err.message);
+      alert('Error al guardar y asignar difusión: ' + err.message);
     } finally {
       setBroadcastLoading(false);
     }
