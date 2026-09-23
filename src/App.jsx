@@ -107,6 +107,12 @@ export default function App() {
   const [broadcastSelectedRigs, setBroadcastSelectedRigs] = useState([]);
   const [broadcastLoading, setBroadcastLoading] = useState(false);
 
+  // Modal para Asignar Tarea del Catálogo a Equipos Existentes
+  const [assignTplModal, setAssignTplModal] = useState(null);
+  const [assignSelectedRigs, setAssignSelectedRigs] = useState([]);
+  const [assignDate, setAssignDate] = useState(new Date().toISOString().split('T')[0]);
+  const [assignLoading, setAssignLoading] = useState(false);
+
   // Admin Plantillas y Equipos
   const [editingTemplateId, setEditingTemplateId] = useState(null);
   const [tplTitle, setTplTitle] = useState('');
@@ -278,11 +284,9 @@ export default function App() {
         .order('scheduled_date', { ascending: true });
 
       setCurrentLocation(null);
-      // Muestra tareas de locaciones actuales O tareas persistentes de difusión activas
       const filtered = (data || []).filter(t => t.rig_locations?.is_current || (t.is_persistent && t.status !== 'Completada'));
       setTasks(filtered);
     } else {
-      // 1. Obtener la locación actual del equipo seleccionado
       const { data: locData } = await supabase
         .from('rig_locations')
         .select('id, location_name, start_date')
@@ -292,7 +296,6 @@ export default function App() {
 
       setCurrentLocation(locData || null);
 
-      // 2. Traer tareas de la locación O tareas persistentes asignadas a este rig_id
       let query = supabase
         .from('tasks')
         .select(`
@@ -461,7 +464,7 @@ export default function App() {
     loadIncidents();
   };
 
-  // 5. BIENES Y RECURSOS (ENTREGA)
+  // 5. BIENES Y RECURSOS
   const handleSaveAsset = async (e) => {
     e.preventDefault();
     if (!newAssetName.trim()) return;
@@ -641,7 +644,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // TABLA 3: ENTREGA DE BIENES (Solo bienes marcados para entrega)
+      // TABLA 3: ENTREGA DE BIENES (Solo los entregados)
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -805,7 +808,7 @@ export default function App() {
 
     setLoading(true);
 
-    // 1. Cerrar locación previa
+    // 1. Cerrar locación anterior
     await supabase
       .from('rig_locations')
       .update({ is_current: false, end_date: newLocDate })
@@ -830,7 +833,7 @@ export default function App() {
       return;
     }
 
-    // 3. Crear las tareas elegidas
+    // 3. Crear las tareas seleccionadas
     const chosenTemplates = templates.filter(t => selectedTplIds.includes(t.id));
     if (chosenTemplates.length > 0) {
       const spud = new Date(newLocDate);
@@ -881,7 +884,7 @@ export default function App() {
     }
   };
 
-  // Lanzar Difusión Masiva desde Panel Admin y guardarla en el Catálogo
+  // Lanzar Difusión Masiva desde Panel Admin (guarda en plantillas y asigna)
   const handleCreateBroadcastTask = async (e) => {
     e.preventDefault();
     if (!broadcastTitle.trim()) {
@@ -892,7 +895,7 @@ export default function App() {
     setBroadcastLoading(true);
 
     try {
-      // 1. Guardar la difusión en task_templates (Catálogo Maestro) para que siempre quede disponible
+      // 1. Guardar la difusión en task_templates (Catálogo Maestro)
       const { error: tplError } = await supabase.from('task_templates').insert({
         title: broadcastTitle.trim(),
         description: broadcastDesc.trim() || 'Campaña / Difusión Temática',
@@ -902,7 +905,7 @@ export default function App() {
 
       if (tplError) throw tplError;
 
-      // 2. Si seleccionaste equipos, asignarla de inmediato a cada uno de ellos
+      // 2. Si se seleccionaron equipos, asignarla de inmediato
       if (broadcastSelectedRigs.length > 0) {
         const { data: activeLocs } = await supabase
           .from('rig_locations')
@@ -934,8 +937,6 @@ export default function App() {
       setBroadcastTitle('');
       setBroadcastDesc('');
       setBroadcastSelectedRigs([]);
-      
-      // 3. Recargar plantillas y tareas activas
       loadTemplates();
       loadTasks();
     } catch (err) {
@@ -959,6 +960,71 @@ export default function App() {
       setBroadcastSelectedRigs([]);
     } else {
       setBroadcastSelectedRigs(rigs.map(r => r.id));
+    }
+  };
+
+  // ASIGNAR CUALQUIER TAREA DEL CATÁLOGO A EQUIPOS ACTIVOS
+  const handleAssignTemplateToRigs = async (e) => {
+    e.preventDefault();
+    if (!assignTplModal || assignSelectedRigs.length === 0) {
+      alert('Selecciona al menos un equipo para asignar la tarea.');
+      return;
+    }
+
+    setAssignLoading(true);
+
+    try {
+      const { data: activeLocs, error: locError } = await supabase
+        .from('rig_locations')
+        .select('id, rig_id')
+        .in('rig_id', assignSelectedRigs)
+        .eq('is_current', true);
+
+      if (locError) throw locError;
+
+      const locMap = {};
+      (activeLocs || []).forEach(loc => {
+        locMap[loc.rig_id] = loc.id;
+      });
+
+      const tasksToInsert = assignSelectedRigs.map(rigId => ({
+        rig_id: rigId,
+        rig_location_id: locMap[rigId] || null,
+        title: assignTplModal.title,
+        description: assignTplModal.description || '',
+        scheduled_date: assignDate,
+        status: 'Pendiente',
+        is_persistent: false
+      }));
+
+      const { error: insertError } = await supabase.from('tasks').insert(tasksToInsert);
+      if (insertError) throw insertError;
+
+      alert(`¡Tarea asignada con éxito a ${assignSelectedRigs.length} equipo(s)!`);
+      setAssignTplModal(null);
+      setAssignSelectedRigs([]);
+      loadTasks();
+    } catch (err) {
+      console.error(err);
+      alert('Error al asignar la tarea a los equipos: ' + err.message);
+    } finally {
+      setAssignLoading(false);
+    }
+  };
+
+  const toggleAssignRig = (rigId) => {
+    if (assignSelectedRigs.includes(rigId)) {
+      setAssignSelectedRigs(assignSelectedRigs.filter(id => id !== rigId));
+    } else {
+      setAssignSelectedRigs([...assignSelectedRigs, rigId]);
+    }
+  };
+
+  const toggleAllAssignRigs = () => {
+    if (assignSelectedRigs.length === rigs.length) {
+      setAssignSelectedRigs([]);
+    } else {
+      setAssignSelectedRigs(rigs.map(r => r.id));
     }
   };
 
@@ -1397,7 +1463,7 @@ export default function App() {
               </button>
             </section>
 
-            {/* MODAL MOVER EQUIPO CON SELECCIÓN DE ACTIVIDADES */}
+            {/* MODAL MOVER EQUIPO */}
             {showMoveModal && (
               <form onSubmit={handleMoveRigWithSelectedTemplates} className="bg-white p-5 rounded-xl shadow-2xl border-2 border-amber-500 space-y-4 max-h-[85vh] overflow-y-auto">
                 <div className="flex justify-between items-center border-b pb-2">
@@ -2458,7 +2524,7 @@ export default function App() {
                     Lanzar Campaña de Difusión Temática (Persistente)
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Crea un tema obligatorio que se replicará en los equipos seleccionados hasta cubrir los 3 turnos.
+                    Crea un tema que se guardará en el catálogo y se replicará en los equipos seleccionados hasta cubrir los turnos.
                   </p>
                 </div>
               </div>
@@ -2540,12 +2606,12 @@ export default function App() {
                   disabled={broadcastLoading}
                   className="w-full bg-purple-700 hover:bg-purple-800 text-white font-bold py-2.5 rounded-lg text-xs uppercase tracking-wider transition disabled:opacity-50 shadow-sm"
                 >
-                  {broadcastLoading ? 'Asignando difusión...' : '📢 Asignar Difusión a Equipos Seleccionados'}
+                  {broadcastLoading ? 'Guardando y asignando difusión...' : '📢 Guardar en Catálogo y Asignar Difusión'}
                 </button>
               </form>
             </section>
 
-            {/* SECCIÓN: PANEL DE ANALÍTICA */}
+            {/* PANEL DE ANALÍTICA */}
             <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
@@ -2856,8 +2922,8 @@ export default function App() {
                 <h3 className="text-sm font-bold text-slate-700">Catálogo Maestro ({templates.length})</h3>
                 <div className="divide-y divide-slate-100">
                   {templates.map((tpl) => (
-                    <div key={tpl.id} className="py-3 flex justify-between items-center gap-3">
-                      <div className="flex-1">
+                    <div key={tpl.id} className="py-3 flex flex-wrap justify-between items-center gap-3">
+                      <div className="flex-1 min-w-[200px]">
                         <h4 className="text-sm font-semibold text-slate-800">{tpl.title}</h4>
                         {tpl.description && <p className="text-xs text-slate-500">{tpl.description}</p>}
                         <div className="flex gap-2 mt-1">
@@ -2871,15 +2937,32 @@ export default function App() {
                       </div>
 
                       <div className="flex items-center gap-1">
+                        {/* BOTÓN ASIGNAR A EQUIPOS EN CUALQUIER MOMENTO */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAssignTplModal(tpl);
+                            setAssignSelectedRigs(rigs.map(r => r.id));
+                            setAssignDate(new Date().toISOString().split('T')[0]);
+                          }}
+                          className="flex items-center gap-1 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-2 py-1 rounded-lg transition shadow-xs mr-1"
+                          title="Asignar esta tarea a equipos activos"
+                        >
+                          <Truck className="w-3.5 h-3.5" />
+                          Asignar
+                        </button>
+
                         <button
                           onClick={() => startEditTemplate(tpl)}
                           className="text-slate-400 hover:text-amber-600 p-2 rounded-lg"
+                          title="Editar plantilla"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDeleteTemplate(tpl.id)}
                           className="text-slate-400 hover:text-red-600 p-2 rounded-lg"
+                          title="Eliminar plantilla"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -2889,6 +2972,84 @@ export default function App() {
                 </div>
               </div>
             </section>
+          </div>
+        )}
+
+        {/* MODAL PARA ASIGNAR CUALQUIER TAREA DEL CATÁLOGO A EQUIPOS EXISTENTES */}
+        {assignTplModal && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+              <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-sm">Asignar Tarea a Equipos en Operación</h3>
+                  <p className="text-xs text-slate-400 truncate max-w-[280px]">{assignTplModal.title}</p>
+                </div>
+                <button type="button" onClick={() => setAssignTplModal(null)} className="text-slate-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleAssignTemplateToRigs} className="p-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Fecha Programada para la Tarea:
+                  </label>
+                  <input
+                    type="date"
+                    value={assignDate}
+                    onChange={(e) => setAssignDate(e.target.value)}
+                    required
+                    className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Seleccionar Equipos ({assignSelectedRigs.length}/{rigs.length}):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={toggleAllAssignRigs}
+                      className="text-[11px] text-amber-600 hover:underline font-semibold"
+                    >
+                      {assignSelectedRigs.length === rigs.length ? 'Desmarcar Todos' : 'Marcar Todos'}
+                    </button>
+                  </div>
+
+                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50 p-1.5">
+                    {rigs.map((r) => (
+                      <label key={r.id} className="flex items-center gap-2 p-2 hover:bg-amber-50/50 cursor-pointer text-xs rounded transition">
+                        <input
+                          type="checkbox"
+                          checked={assignSelectedRigs.includes(r.id)}
+                          onChange={() => toggleAssignRig(r.id)}
+                          className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4"
+                        />
+                        <span className="font-semibold text-slate-800">🚜 {r.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setAssignTplModal(null)}
+                    className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-semibold"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={assignLoading}
+                    className="px-4 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition disabled:opacity-50"
+                  >
+                    {assignLoading ? 'Asignando...' : 'Asignar a Equipos'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
       </main>
