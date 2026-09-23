@@ -100,7 +100,14 @@ export default function App() {
   const [shiftParticipants, setShiftParticipants] = useState('');
   const [shiftDate, setShiftDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Admin
+  // Difusión Masiva desde Panel Admin
+  const [broadcastTitle, setBroadcastTitle] = useState('');
+  const [broadcastDesc, setBroadcastDesc] = useState('');
+  const [broadcastDate, setBroadcastDate] = useState(new Date().toISOString().split('T')[0]);
+  const [broadcastSelectedRigs, setBroadcastSelectedRigs] = useState([]);
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+
+  // Admin Plantillas y Equipos
   const [editingTemplateId, setEditingTemplateId] = useState(null);
   const [tplTitle, setTplTitle] = useState('');
   const [tplDesc, setTplDesc] = useState('');
@@ -265,15 +272,17 @@ export default function App() {
             location_name,
             is_current,
             rigs ( id, name )
-          )
+          ),
+          rigs ( id, name )
         `)
         .order('scheduled_date', { ascending: true });
 
       setCurrentLocation(null);
-      // Mostramos tareas que pertenezcan a la locación actual activa O tareas persistentes no completadas
+      // Muestra tareas de locaciones actuales O tareas persistentes de difusión activas
       const filtered = (data || []).filter(t => t.rig_locations?.is_current || (t.is_persistent && t.status !== 'Completada'));
       setTasks(filtered);
     } else {
+      // 1. Obtener la locación actual del equipo seleccionado
       const { data: locData } = await supabase
         .from('rig_locations')
         .select('id, location_name, start_date')
@@ -283,39 +292,27 @@ export default function App() {
 
       setCurrentLocation(locData || null);
 
+      // 2. Traer tareas de la locación O tareas persistentes asignadas a este rig_id
+      let query = supabase
+        .from('tasks')
+        .select(`
+          *,
+          rig_locations (
+            id,
+            location_name,
+            rigs ( id, name )
+          ),
+          rigs ( id, name )
+        `);
+
       if (locData) {
-        const { data: taskData } = await supabase
-          .from('tasks')
-          .select(`
-            *,
-            rig_locations (
-              id,
-              location_name,
-              rigs ( id, name )
-            )
-          `)
-          .or(`rig_location_id.eq.${locData.id},and(rig_id.eq.${selectedRig},is_persistent.eq.true)`)
-          .order('scheduled_date', { ascending: true });
-
-        setTasks(taskData || []);
+        query = query.or(`rig_location_id.eq.${locData.id},and(rig_id.eq.${selectedRig},is_persistent.eq.true)`);
       } else {
-        // Si el rig no tiene locación activa, traer al menos sus tareas persistentes
-        const { data: persistentData } = await supabase
-          .from('tasks')
-          .select(`
-            *,
-            rig_locations (
-              id,
-              location_name,
-              rigs ( id, name )
-            )
-          `)
-          .eq('rig_id', selectedRig)
-          .eq('is_persistent', true)
-          .order('scheduled_date', { ascending: true });
-
-        setTasks(persistentData || []);
+        query = query.eq('rig_id', selectedRig).eq('is_persistent', true);
       }
+
+      const { data: taskData } = await query.order('scheduled_date', { ascending: true });
+      setTasks(taskData || []);
     }
     setLoading(false);
   };
@@ -324,7 +321,7 @@ export default function App() {
     if (session) loadTasks();
   }, [selectedRig, session]);
 
-  // 3. DIARIO DE ACTIVIDADES (ALTA / EDICIÓN)
+  // 3. DIARIO DE ACTIVIDADES
   const openNewLogModal = () => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
@@ -395,7 +392,7 @@ export default function App() {
     loadDailyLogs();
   };
 
-  // 4. EVENTOS Y CONTINGENCIAS (ALTA / EDICIÓN)
+  // 4. EVENTOS Y CONTINGENCIAS
   const openNewIncModal = () => {
     setEditingIncId(null);
     setIncDate(new Date().toISOString().split('T')[0]);
@@ -464,7 +461,7 @@ export default function App() {
     loadIncidents();
   };
 
-  // 5. BIENES Y ENTREGA DE RECURSOS
+  // 5. BIENES Y RECURSOS (ENTREGA)
   const handleSaveAsset = async (e) => {
     e.preventDefault();
     if (!newAssetName.trim()) return;
@@ -644,7 +641,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // TABLA 3: ENTREGA DE BIENES (Solo los entregados)
+      // TABLA 3: ENTREGA DE BIENES (Solo bienes marcados para entrega)
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -743,7 +740,7 @@ export default function App() {
     setIsSavingTaskModal(false);
   };
 
-  // Registro de Asistencia por Turnos para Tareas de Difusión
+  // Registro de Asistencia por Turnos para Difusiones
   const openShiftModal = (task) => {
     setShiftTask(task);
     setShiftName('Turno Mañana / Turno 1');
@@ -784,10 +781,10 @@ export default function App() {
     setTasks(tasks.filter(t => t.id !== taskId));
   };
 
-  // Mover Equipo con Selección Manual del Catálogo Maestro
+  // Mover Equipo con Selección de Tareas
   const handleOpenMoveModal = () => {
     setMoveRigId(selectedRig === 'ALL' ? rigs[0]?.id : selectedRig);
-    setSelectedTplIds(templates.map(t => t.id)); // Marcadas todas por defecto
+    setSelectedTplIds(templates.map(t => t.id));
     setNewLocName('');
     setNewLocDate(new Date().toISOString().split('T')[0]);
     setShowMoveModal(true);
@@ -808,7 +805,7 @@ export default function App() {
 
     setLoading(true);
 
-    // 1. Cerrar locación anterior del rig
+    // 1. Cerrar locación previa
     await supabase
       .from('rig_locations')
       .update({ is_current: false, end_date: newLocDate })
@@ -833,7 +830,7 @@ export default function App() {
       return;
     }
 
-    // 3. Crear ÚNICAMENTE las tareas seleccionadas por el usuario
+    // 3. Crear las tareas elegidas
     const chosenTemplates = templates.filter(t => selectedTplIds.includes(t.id));
     if (chosenTemplates.length > 0) {
       const spud = new Date(newLocDate);
@@ -856,7 +853,7 @@ export default function App() {
     loadTasks();
   };
 
-  // Crear Tarea Eventual o Difusión Persistente
+  // Crear Tarea Eventual o Difusión Persistente desde Operaciones
   const handleCreateExtraTask = async (e) => {
     e.preventDefault();
     const targetRig = selectedRig === 'ALL' ? rigs[0]?.id : selectedRig;
@@ -881,6 +878,73 @@ export default function App() {
       setTaskIsPersistent(false);
       setShowTaskModal(false);
       loadTasks();
+    }
+  };
+
+  // Lanzar Difusión Masiva desde Panel Admin
+  const handleCreateBroadcastTask = async (e) => {
+    e.preventDefault();
+    if (!broadcastTitle.trim() || broadcastSelectedRigs.length === 0) {
+      alert('Ingresa el título de la difusión y selecciona al menos un equipo.');
+      return;
+    }
+
+    setBroadcastLoading(true);
+
+    try {
+      // Buscar las locaciones activas de los equipos seleccionados
+      const { data: activeLocs } = await supabase
+        .from('rig_locations')
+        .select('id, rig_id')
+        .in('rig_id', broadcastSelectedRigs)
+        .eq('is_current', true);
+
+      const locMap = {};
+      (activeLocs || []).forEach(loc => {
+        locMap[loc.rig_id] = loc.id;
+      });
+
+      // Crear tarea persistente para cada equipo seleccionado
+      const tasksToInsert = broadcastSelectedRigs.map(rigId => ({
+        rig_id: rigId,
+        rig_location_id: locMap[rigId] || null,
+        title: broadcastTitle.trim(),
+        description: broadcastDesc.trim(),
+        scheduled_date: broadcastDate,
+        status: 'Pendiente',
+        is_persistent: true,
+        shifts_data: []
+      }));
+
+      const { error } = await supabase.from('tasks').insert(tasksToInsert);
+      if (error) throw error;
+
+      alert(`¡Campaña de difusión asignada con éxito a ${broadcastSelectedRigs.length} equipo(s)!`);
+      setBroadcastTitle('');
+      setBroadcastDesc('');
+      setBroadcastSelectedRigs([]);
+      loadTasks();
+    } catch (err) {
+      console.error(err);
+      alert('Error al asignar difusión: ' + err.message);
+    } finally {
+      setBroadcastLoading(false);
+    }
+  };
+
+  const toggleBroadcastRig = (rigId) => {
+    if (broadcastSelectedRigs.includes(rigId)) {
+      setBroadcastSelectedRigs(broadcastSelectedRigs.filter(id => id !== rigId));
+    } else {
+      setBroadcastSelectedRigs([...broadcastSelectedRigs, rigId]);
+    }
+  };
+
+  const toggleAllBroadcastRigs = () => {
+    if (broadcastSelectedRigs.length === rigs.length) {
+      setBroadcastSelectedRigs([]);
+    } else {
+      setBroadcastSelectedRigs(rigs.map(r => r.id));
     }
   };
 
@@ -914,7 +978,6 @@ export default function App() {
     loadPastTasks();
   }, [selectedHistoryLoc]);
 
-  // Borrado de Locaciones Históricas (Solo Administrador)
   const handleDeleteHistoricLocation = async () => {
     if (!selectedHistoryLoc || !isAdmin) return;
     if (!confirm('¿Estás seguro de eliminar este pozo archivado del historial? Se borrarán también sus registros asociados.')) return;
@@ -982,7 +1045,7 @@ export default function App() {
   };
 
   // Métricas y Cálculos
-  const activeRigsCount = new Set(tasks.map(t => t.rig_locations?.rigs?.id).filter(Boolean)).size || rigs.length;
+  const activeRigsCount = new Set(tasks.map(t => t.rig_locations?.rigs?.id || t.rigs?.id).filter(Boolean)).size || rigs.length;
 
   const dtmCount = new Set(dailyLogs.filter(l => l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
   const drillCount = dailyLogs.filter(l => l.activity_type === 'Simulacro').length;
@@ -1412,7 +1475,7 @@ export default function App() {
               </form>
             )}
 
-            {/* MODAL TAREA EVENTUAL O DIFUSIÓN PERSISTENTE */}
+            {/* MODAL TAREA EVENTUAL / DIFUSIÓN PERSISTENTE */}
             {showTaskModal && (
               <form onSubmit={handleCreateExtraTask} className="bg-white p-5 rounded-xl shadow-lg border border-slate-300 space-y-3">
                 <h3 className="text-sm font-bold text-slate-800">Agregar Tarea Eventual / Campaña de Difusión</h3>
@@ -1568,7 +1631,7 @@ export default function App() {
               </div>
             )}
 
-            {/* MODAL REGISTRAR ASISTENCIA DE DIFUSIÓN POR TURNO */}
+            {/* MODAL REGISTRO DE ASISTENCIA POR TURNO */}
             {shiftTask && (
               <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                 <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
@@ -1649,7 +1712,7 @@ export default function App() {
                 sortedTasks.map((task) => {
                   const overdue = isOverdue(task.scheduled_date, task.status);
                   const dueToday = isDueToday(task.scheduled_date, task.status);
-                  const rigName = task.rig_locations?.rigs?.name;
+                  const rigName = task.rig_locations?.rigs?.name || task.rigs?.name;
                   const locName = task.rig_locations?.location_name;
                   const isLocked = task.status === 'Completada' && !isAdmin && task.completed_by !== session.user.id;
                   const shiftsList = Array.isArray(task.shifts_data) ? task.shifts_data : [];
@@ -2372,6 +2435,103 @@ export default function App() {
         {/* ADMIN */}
         {activeTab === 'admin' && isAdmin && (
           <div className="space-y-6">
+            {/* SECCIÓN: CREAR CAMPAÑA DE DIFUSIÓN Y ASIGNAR A EQUIPOS */}
+            <section className="bg-white p-5 rounded-xl shadow-sm border border-purple-200 space-y-4">
+              <div className="flex items-center gap-2 border-b border-purple-100 pb-2">
+                <Users className="w-5 h-5 text-purple-600" />
+                <div>
+                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                    Lanzar Campaña de Difusión Temática (Persistente)
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Crea un tema obligatorio que se replicará en los equipos seleccionados hasta cubrir los 3 turnos.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateBroadcastTask} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Tema / Título de la Difusión:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Difusión Lección Aprendida - Procedimiento de Izaje y Maniobras"
+                    value={broadcastTitle}
+                    onChange={(e) => setBroadcastTitle(e.target.value)}
+                    required
+                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Alcance, Objetivos e Instrucciones para los Inspectores:
+                  </label>
+                  <textarea
+                    placeholder="Indicar puntos clave a transmitir en la charla de relevo o inicio de turno..."
+                    value={broadcastDesc}
+                    onChange={(e) => setBroadcastDesc(e.target.value)}
+                    rows={2}
+                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Fecha Límite / Programada:
+                    </label>
+                    <input
+                      type="date"
+                      value={broadcastDate}
+                      onChange={(e) => setBroadcastDate(e.target.value)}
+                      required
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Asignar a Equipos ({broadcastSelectedRigs.length}/{rigs.length}):
+                      </label>
+                      <button
+                        type="button"
+                        onClick={toggleAllBroadcastRigs}
+                        className="text-[11px] text-purple-600 hover:underline font-semibold"
+                      >
+                        {broadcastSelectedRigs.length === rigs.length ? 'Desmarcar Todos' : 'Marcar Todos'}
+                      </button>
+                    </div>
+
+                    <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50 p-1.5">
+                      {rigs.map((r) => (
+                        <label key={r.id} className="flex items-center gap-2 p-1.5 hover:bg-purple-50/50 cursor-pointer text-xs rounded">
+                          <input
+                            type="checkbox"
+                            checked={broadcastSelectedRigs.includes(r.id)}
+                            onChange={() => toggleBroadcastRig(r.id)}
+                            className="rounded text-purple-600 focus:ring-purple-500"
+                          />
+                          <span className="font-semibold text-slate-800">🚜 {r.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={broadcastLoading}
+                  className="w-full bg-purple-700 hover:bg-purple-800 text-white font-bold py-2.5 rounded-lg text-xs uppercase tracking-wider transition disabled:opacity-50 shadow-sm"
+                >
+                  {broadcastLoading ? 'Asignando difusión...' : '📢 Asignar Difusión a Equipos Seleccionados'}
+                </button>
+              </form>
+            </section>
+
+            {/* SECCIÓN: PANEL DE ANALÍTICA */}
             <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
@@ -2546,6 +2706,7 @@ export default function App() {
               </div>
             </section>
 
+            {/* GESTIÓN DE EQUIPOS */}
             <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
                 <HardHat className="w-5 h-5 text-amber-600" />
@@ -2587,6 +2748,7 @@ export default function App() {
               </div>
             </section>
 
+            {/* CATÁLOGO MAESTRO */}
             <section className="space-y-4">
               <form onSubmit={handleSaveTemplate} className={`bg-white p-5 rounded-xl shadow-sm border ${
                 editingTemplateId ? 'border-2 border-amber-500 bg-amber-50/10' : 'border-slate-200'
