@@ -6,7 +6,8 @@ import {
   ShieldCheck, CheckCircle2, AlertTriangle, 
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
-  BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users
+  BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users,
+  Compass, Building2, Flame, Award
 } from 'lucide-react';
 
 export default function App() {
@@ -69,6 +70,7 @@ export default function App() {
 
   // Histórico
   const [pastLocations, setPastLocations] = useState([]);
+  const [allLocations, setAllLocations] = useState([]);
   const [selectedHistoryLoc, setSelectedHistoryLoc] = useState('');
   const [historyTasks, setHistoryTasks] = useState([]);
 
@@ -126,14 +128,17 @@ export default function App() {
   const [adminDateFrom, setAdminDateFrom] = useState('');
   const [adminDateTo, setAdminDateTo] = useState('');
 
+  // Catálogo completo de Tipos de Actividades (Incluye EcoTour y Asistencia a Base)
   const activityTypes = [
     'Asistencia a DTM',
     'Tarea Planificada',
     'Simulacro',
     'Reunión',
-    'Visita general',
+    'EcoTour',
+    'Asistencia a Base Operativa',
     'Inspección / Auditoría',
     'Inducción / Capacitación',
+    'Visita general',
     'Difusión Temática',
     'Otro'
   ];
@@ -254,6 +259,12 @@ export default function App() {
     setAssets(data || []);
   };
 
+  const loadAllLocations = async () => {
+    if (!session) return;
+    const { data } = await supabase.from('rig_locations').select('*').order('start_date', { ascending: true });
+    setAllLocations(data || []);
+  };
+
   useEffect(() => {
     if (session) {
       loadRigs();
@@ -261,6 +272,7 @@ export default function App() {
       loadDailyLogs();
       loadIncidents();
       loadAssets();
+      loadAllLocations();
     }
   }, [session]);
 
@@ -323,6 +335,53 @@ export default function App() {
   useEffect(() => {
     if (session) loadTasks();
   }, [selectedRig, session]);
+
+  // CÁLCULO DE DÍAS SIN INCIDENTES POR EQUIPO
+  const calculateDaysWithoutIncidents = () => {
+    if (selectedRig === 'ALL') return null;
+
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+
+    // 1. Verificar si hay incidentes registrados para este equipo
+    const rigIncidents = incidents
+      .filter(inc => inc.rig_id === selectedRig)
+      .sort((a, b) => new Date(b.event_date) - new Date(a.event_date));
+
+    let referenceDate = null;
+    let referenceType = '';
+
+    if (rigIncidents.length > 0) {
+      // Tomamos la fecha del último incidente
+      referenceDate = new Date(rigIncidents[0].event_date);
+      referenceType = `Último evento (${rigIncidents[0].event_date})`;
+    } else {
+      // 2. Si no hay incidentes, buscar la fecha de inicio de la primera locación registrada
+      const rigLocs = allLocations
+        .filter(l => l.rig_id === selectedRig)
+        .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+
+      if (rigLocs.length > 0 && rigLocs[0].start_date) {
+        referenceDate = new Date(rigLocs[0].start_date);
+        referenceType = `Desde inicio de operaciones (${rigLocs[0].start_date})`;
+      } else if (currentLocation?.start_date) {
+        referenceDate = new Date(currentLocation.start_date);
+        referenceType = `Spud-in actual (${currentLocation.start_date})`;
+      }
+    }
+
+    if (!referenceDate || isNaN(referenceDate.getTime())) {
+      return { days: 0, referenceType: 'Sin datos de fecha de inicio' };
+    }
+
+    referenceDate.setHours(0, 0, 0, 0);
+    const diffTime = todayDate.getTime() - referenceDate.getTime();
+    const diffDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+
+    return { days: diffDays, referenceType };
+  };
+
+  const daysWithoutIncidentsData = calculateDaysWithoutIncidents();
 
   // 3. DIARIO DE ACTIVIDADES
   const openNewLogModal = () => {
@@ -644,7 +703,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // TABLA 3: ENTREGA DE BIENES (Solo los entregados)
+      // TABLA 3: ENTREGA DE BIENES (Solo bienes marcados para entrega)
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -853,6 +912,7 @@ export default function App() {
     }
 
     setShowMoveModal(false);
+    loadAllLocations();
     loadTasks();
   };
 
@@ -895,7 +955,6 @@ export default function App() {
     setBroadcastLoading(true);
 
     try {
-      // 1. Guardar la difusión en task_templates (Catálogo Maestro)
       const { error: tplError } = await supabase.from('task_templates').insert({
         title: broadcastTitle.trim(),
         description: broadcastDesc.trim() || 'Campaña / Difusión Temática',
@@ -905,7 +964,6 @@ export default function App() {
 
       if (tplError) throw tplError;
 
-      // 2. Si se seleccionaron equipos, asignarla de inmediato
       if (broadcastSelectedRigs.length > 0) {
         const { data: activeLocs } = await supabase
           .from('rig_locations')
@@ -1067,6 +1125,7 @@ export default function App() {
     
     setSelectedHistoryLoc('');
     loadPastLocations();
+    loadAllLocations();
   };
 
   // Admin Plantillas
@@ -1124,14 +1183,27 @@ export default function App() {
     if (selectedRig === rigId) setSelectedRig('ALL');
   };
 
-  // Métricas y Cálculos
+  // Métricas y Cálculos de Actividades para Solapa Guardia
   const activeRigsCount = new Set(tasks.map(t => t.rig_locations?.rigs?.id || t.rigs?.id).filter(Boolean)).size || rigs.length;
 
+  const getLogCount = (type) => dailyLogs.filter(l => l.activity_type === type).length;
   const dtmCount = new Set(dailyLogs.filter(l => l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
-  const drillCount = dailyLogs.filter(l => l.activity_type === 'Simulacro').length;
-  const plannedCount = dailyLogs.filter(l => l.activity_type === 'Tarea Planificada').length;
-  const meetingCount = dailyLogs.filter(l => l.activity_type === 'Reunión').length;
 
+  const activityStats = {
+    dtm: dtmCount,
+    plan: getLogCount('Tarea Planificada'),
+    drill: getLogCount('Simulacro'),
+    meeting: getLogCount('Reunión'),
+    ecotour: getLogCount('EcoTour'),
+    base: getLogCount('Asistencia a Base Operativa'),
+    inspection: getLogCount('Inspección / Auditoría'),
+    induction: getLogCount('Inducción / Capacitación'),
+    visita: getLogCount('Visita general'),
+    difusion: getLogCount('Difusión Temática'),
+    otro: getLogCount('Otro')
+  };
+
+  // Métricas del Panel Admin
   const filteredAdminLogs = dailyLogs.filter((log) => {
     if (adminSelectedInspector !== 'ALL' && log.user_id !== adminSelectedInspector) return false;
     if (adminDateFrom && log.log_date < adminDateFrom) return false;
@@ -1161,15 +1233,21 @@ export default function App() {
       .map(l => `${l.log_date}_${l.user_id}`)
   ).size;
 
+  const getAdminCount = (type) => filteredAdminLogs.filter(l => l.activity_type === type).length;
+
   const adminStats = {
     totalWorkDays: groupedDaysArray.length,
     dtmDays: uniqueDtmDays,
-    simulacro: filteredAdminLogs.filter(l => l.activity_type === 'Simulacro').length,
-    plan: filteredAdminLogs.filter(l => l.activity_type === 'Tarea Planificada').length,
-    reunion: filteredAdminLogs.filter(l => l.activity_type === 'Reunión').length,
-    visita: filteredAdminLogs.filter(l => l.activity_type === 'Visita general').length,
-    auditoria: filteredAdminLogs.filter(l => l.activity_type === 'Inspección / Auditoría').length,
-    capacitacion: filteredAdminLogs.filter(l => l.activity_type === 'Inducción / Capacitación').length,
+    plan: getAdminCount('Tarea Planificada'),
+    simulacro: getAdminCount('Simulacro'),
+    reunion: getAdminCount('Reunión'),
+    ecotour: getAdminCount('EcoTour'),
+    base: getAdminCount('Asistencia a Base Operativa'),
+    auditoria: getAdminCount('Inspección / Auditoría'),
+    capacitacion: getAdminCount('Inducción / Capacitación'),
+    visita: getAdminCount('Visita general'),
+    difusion: getAdminCount('Difusión Temática'),
+    otro: getAdminCount('Otro'),
     totalActivities: filteredAdminLogs.length
   };
 
@@ -1400,6 +1478,7 @@ export default function App() {
               </div>
             </section>
 
+            {/* SECCIÓN FILTRAR POR EQUIPO Y TARJETA DÍAS SIN INCIDENTES */}
             <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex justify-between items-center">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
@@ -1428,13 +1507,44 @@ export default function App() {
                 ))}
               </select>
 
-              {selectedRig !== 'ALL' && currentLocation && (
-                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
-                  <div>
-                    <span className="text-slate-500">Pozo actual:</span>{' '}
-                    <strong className="text-slate-800 text-sm">{currentLocation.location_name}</strong>
-                  </div>
-                  <span className="text-slate-500">Spud-in: {currentLocation.start_date}</span>
+              {/* DETALLES DE POZO Y DÍAS SIN INCIDENTES AL SELECCIONAR EQUIPO INDIVIDUAL */}
+              {selectedRig !== 'ALL' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {currentLocation ? (
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
+                      <div>
+                        <span className="text-slate-500">Pozo actual:</span>{' '}
+                        <strong className="text-slate-800 text-sm block">{currentLocation.location_name}</strong>
+                      </div>
+                      <span className="text-slate-500 font-medium">Spud-in: {currentLocation.start_date}</span>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs text-slate-500 flex items-center">
+                      <span>Sin pozo activo actualmente (En traslado / DTM)</span>
+                    </div>
+                  )}
+
+                  {daysWithoutIncidentsData && (
+                    <div className="bg-gradient-to-r from-emerald-500 to-teal-700 text-white p-3 rounded-lg shadow-sm flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-white/20 rounded-lg">
+                          <Award className="w-6 h-6 text-amber-300" />
+                        </div>
+                        <div>
+                          <span className="text-[11px] font-bold text-emerald-100 uppercase tracking-wider block">
+                            Días Sin Incidentes
+                          </span>
+                          <span className="text-[10px] text-emerald-100 block">
+                            {daysWithoutIncidentsData.referenceType}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-2xl font-black">{daysWithoutIncidentsData.days}</span>
+                        <span className="text-[11px] font-bold block uppercase text-emerald-100">Días</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </section>
@@ -1952,29 +2062,70 @@ export default function App() {
           </>
         )}
 
-        {/* DIARIO DE GUARDIA (14x14) */}
+        {/* DIARIO DE GUARDIA (14x14) CON TODAS LAS TARJETAS INFORMATIVAS */}
         {activeTab === 'guardia' && (
           <div className="space-y-4">
-            <section className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-amber-600 uppercase tracking-wider block">Días en DTM</span>
-                <span className="text-xl font-black text-slate-800">{dtmCount}</span>
-                <span className="text-[10px] text-slate-400 block">días con presencia</span>
+            {/* PANEL DE TODAS LAS TARJETAS INFORMATIVAS DE ACTIVIDADES */}
+            <section className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
+              <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+                <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Días en DTM</span>
+                <span className="text-xl font-black text-amber-950">{activityStats.dtm}</span>
+                <span className="text-[9px] text-amber-700 block">días con presencia</span>
               </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider block">Simulacros</span>
-                <span className="text-xl font-black text-blue-700">{drillCount}</span>
-                <span className="text-[10px] text-slate-400 block">ejecutados</span>
+              <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Planificadas</span>
+                <span className="text-xl font-black text-emerald-950">{activityStats.plan}</span>
+                <span className="text-[9px] text-emerald-700 block">actividades</span>
               </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider block">Tareas Planificadas</span>
-                <span className="text-xl font-black text-emerald-700">{plannedCount}</span>
-                <span className="text-[10px] text-slate-400 block">actividades</span>
+              <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
+                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Simulacros</span>
+                <span className="text-xl font-black text-blue-950">{activityStats.drill}</span>
+                <span className="text-[9px] text-blue-700 block">ejecutados</span>
               </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-purple-600 uppercase tracking-wider block">Reuniones HSE</span>
-                <span className="text-xl font-black text-purple-700">{meetingCount}</span>
-                <span className="text-[10px] text-slate-400 block">reuniones</span>
+              <div className="bg-purple-50 p-2.5 rounded-xl border border-purple-200">
+                <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">Reuniones HSE</span>
+                <span className="text-xl font-black text-purple-950">{activityStats.meeting}</span>
+                <span className="text-[9px] text-purple-700 block">reuniones</span>
+              </div>
+              <div className="bg-teal-50 p-2.5 rounded-xl border border-teal-200">
+                <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">EcoTour</span>
+                <span className="text-xl font-black text-teal-950">{activityStats.ecotour}</span>
+                <span className="text-[9px] text-teal-700 block">ambientales</span>
+              </div>
+              <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
+                <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">Asist. Base</span>
+                <span className="text-xl font-black text-indigo-950">{activityStats.base}</span>
+                <span className="text-[9px] text-indigo-700 block">operativa</span>
+              </div>
+              <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider block">Inspecciones</span>
+                <span className="text-xl font-black text-rose-950">{activityStats.inspection}</span>
+                <span className="text-[9px] text-rose-700 block">auditorías</span>
+              </div>
+              <div className="bg-cyan-50 p-2.5 rounded-xl border border-cyan-200">
+                <span className="text-[10px] font-bold text-cyan-800 uppercase tracking-wider block">Capacitación</span>
+                <span className="text-xl font-black text-cyan-950">{activityStats.induction}</span>
+                <span className="text-[9px] text-cyan-700 block">inducciones</span>
+              </div>
+              <div className="bg-orange-50 p-2.5 rounded-xl border border-orange-200">
+                <span className="text-[10px] font-bold text-orange-800 uppercase tracking-wider block">Visita Gral.</span>
+                <span className="text-xl font-black text-orange-950">{activityStats.visita}</span>
+                <span className="text-[9px] text-orange-700 block">visitas</span>
+              </div>
+              <div className="bg-fuchsia-50 p-2.5 rounded-xl border border-fuchsia-200">
+                <span className="text-[10px] font-bold text-fuchsia-800 uppercase tracking-wider block">Difusiones</span>
+                <span className="text-xl font-black text-fuchsia-950">{activityStats.difusion}</span>
+                <span className="text-[9px] text-fuchsia-700 block">temáticas</span>
+              </div>
+              <div className="bg-slate-100 p-2.5 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">Otras</span>
+                <span className="text-xl font-black text-slate-900">{activityStats.otro}</span>
+                <span className="text-[9px] text-slate-500 block">actividades</span>
+              </div>
+              <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-sm">
+                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Total Turno</span>
+                <span className="text-xl font-black">{dailyLogs.length}</span>
+                <span className="text-[9px] text-slate-400 block">cargas registradas</span>
               </div>
             </section>
 
@@ -2175,7 +2326,7 @@ export default function App() {
                   Registro de Contingencias, Incidentes y Accidentes
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Tipificación oficial de contingencias para informe PDF de cambio de guardia.
+                  Tipificación oficial de contingencias para informe PDF y cómputo de días sin incidentes.
                 </p>
               </div>
 
@@ -2621,7 +2772,7 @@ export default function App() {
                       Panel de Control y Analítica de Inspectores
                     </h2>
                     <p className="text-xs text-slate-500">
-                      Supervisión por jornadas reales trabajadas y desglose de actividades realizadas.
+                      Supervisión por jornadas reales trabajadas y desglose de todas las actividades realizadas.
                     </p>
                   </div>
                 </div>
@@ -2672,50 +2823,78 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+              {/* TARJETAS INFORMATIVAS COMPLETAS DEL PANEL ADMIN */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2.5 pt-1">
                 <div className="bg-slate-900 text-white p-3 rounded-xl col-span-2 sm:col-span-1 shadow-sm">
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Jornadas Reales</span>
                   <span className="text-2xl font-black text-amber-400">{adminStats.totalWorkDays}</span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">días únicos en campo</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">días en campo</span>
                 </div>
 
-                <div className="bg-amber-50 p-3 rounded-xl border border-amber-200">
-                  <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider block">Días en DTM</span>
-                  <span className="text-2xl font-black text-amber-900">{adminStats.dtmDays}</span>
-                  <span className="text-[10px] text-amber-700 block mt-0.5">días con asistencia</span>
+                <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Días en DTM</span>
+                  <span className="text-xl font-black text-amber-900">{adminStats.dtmDays}</span>
+                  <span className="text-[9px] text-amber-700 block mt-0.5">asistencias</span>
                 </div>
 
-                <div className="bg-blue-50 p-3 rounded-xl border border-blue-200">
-                  <span className="text-[11px] font-bold text-blue-800 uppercase tracking-wider block">Simulacros</span>
-                  <span className="text-2xl font-black text-blue-900">{adminStats.simulacro}</span>
-                  <span className="text-[10px] text-blue-700 block mt-0.5">ejecutados</span>
+                <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Planificadas</span>
+                  <span className="text-xl font-black text-emerald-900">{adminStats.plan}</span>
+                  <span className="text-[9px] text-emerald-700 block mt-0.5">completadas</span>
                 </div>
 
-                <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
-                  <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">Planificadas</span>
-                  <span className="text-2xl font-black text-emerald-900">{adminStats.plan}</span>
-                  <span className="text-[10px] text-emerald-700 block mt-0.5">completadas</span>
+                <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
+                  <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Simulacros</span>
+                  <span className="text-xl font-black text-blue-900">{adminStats.simulacro}</span>
+                  <span className="text-[9px] text-blue-700 block mt-0.5">ejecutados</span>
                 </div>
 
-                <div className="bg-purple-50 p-3 rounded-xl border border-purple-200">
-                  <span className="text-[11px] font-bold text-purple-800 uppercase tracking-wider block">Reuniones HSE</span>
-                  <span className="text-2xl font-black text-purple-900">{adminStats.reunion}</span>
-                  <span className="text-[10px] text-purple-700 block mt-0.5">reuniones</span>
+                <div className="bg-purple-50 p-2.5 rounded-xl border border-purple-200">
+                  <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">Reuniones HSE</span>
+                  <span className="text-xl font-black text-purple-900">{adminStats.reunion}</span>
+                  <span className="text-[9px] text-purple-700 block mt-0.5">reuniones</span>
                 </div>
 
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">Visitas Generales</span>
-                  <span className="text-2xl font-black text-slate-800">{adminStats.visita}</span>
+                <div className="bg-teal-50 p-2.5 rounded-xl border border-teal-200">
+                  <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">EcoTour</span>
+                  <span className="text-xl font-black text-teal-900">{adminStats.ecotour}</span>
+                  <span className="text-[9px] text-teal-700 block mt-0.5">recorridos</span>
                 </div>
 
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">Auditorías</span>
-                  <span className="text-2xl font-black text-slate-800">{adminStats.auditoria}</span>
+                <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
+                  <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">Asist. Base</span>
+                  <span className="text-xl font-black text-indigo-900">{adminStats.base}</span>
+                  <span className="text-[9px] text-indigo-700 block mt-0.5">visitas</span>
                 </div>
 
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">Capacitaciones</span>
-                  <span className="text-2xl font-black text-slate-800">{adminStats.capacitacion}</span>
+                <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                  <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider block">Auditorías</span>
+                  <span className="text-xl font-black text-rose-900">{adminStats.auditoria}</span>
+                  <span className="text-[9px] text-rose-700 block mt-0.5">inspecciones</span>
+                </div>
+
+                <div className="bg-cyan-50 p-2.5 rounded-xl border border-cyan-200">
+                  <span className="text-[10px] font-bold text-cyan-800 uppercase tracking-wider block">Capacitaciones</span>
+                  <span className="text-xl font-black text-cyan-900">{adminStats.capacitacion}</span>
+                  <span className="text-[9px] text-cyan-700 block mt-0.5">inducciones</span>
+                </div>
+
+                <div className="bg-orange-50 p-2.5 rounded-xl border border-orange-200">
+                  <span className="text-[10px] font-bold text-orange-800 uppercase tracking-wider block">Visitas Gral.</span>
+                  <span className="text-xl font-black text-orange-900">{adminStats.visita}</span>
+                  <span className="text-[9px] text-orange-700 block mt-0.5">generales</span>
+                </div>
+
+                <div className="bg-fuchsia-50 p-2.5 rounded-xl border border-fuchsia-200">
+                  <span className="text-[10px] font-bold text-fuchsia-800 uppercase tracking-wider block">Difusiones</span>
+                  <span className="text-xl font-black text-fuchsia-900">{adminStats.difusion}</span>
+                  <span className="text-[9px] text-fuchsia-700 block mt-0.5">temáticas</span>
+                </div>
+
+                <div className="bg-slate-100 p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">Otras</span>
+                  <span className="text-xl font-black text-slate-900">{adminStats.otro}</span>
+                  <span className="text-[9px] text-slate-500 block mt-0.5">registros</span>
                 </div>
               </div>
 
@@ -2937,7 +3116,6 @@ export default function App() {
                       </div>
 
                       <div className="flex items-center gap-1">
-                        {/* BOTÓN ASIGNAR A EQUIPOS EN CUALQUIER MOMENTO */}
                         <button
                           type="button"
                           onClick={() => {
