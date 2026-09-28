@@ -7,7 +7,7 @@ import {
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
   BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users,
-  Compass, Building2, Flame, Award
+  Compass, Building2, Flame, Award, Radio, Send
 } from 'lucide-react';
 
 export default function App() {
@@ -90,6 +90,7 @@ export default function App() {
 
   // Modal de Gestión/Cierre de Tareas
   const [selectedTaskForEdit, setSelectedTaskForEdit] = useState(null);
+  const [editScheduledDate, setEditScheduledDate] = useState('');
   const [editStatus, setEditStatus] = useState('En Progreso');
   const [editComments, setEditComments] = useState('');
   const [editClosedDate, setEditClosedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -102,14 +103,21 @@ export default function App() {
   const [shiftParticipants, setShiftParticipants] = useState('');
   const [shiftDate, setShiftDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Difusión Masiva desde Panel Admin
+  // Campañas de Difusión (Biblioteca y Asignación)
+  const [campaigns, setCampaigns] = useState([]);
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastDesc, setBroadcastDesc] = useState('');
   const [broadcastDate, setBroadcastDate] = useState(new Date().toISOString().split('T')[0]);
   const [broadcastSelectedRigs, setBroadcastSelectedRigs] = useState([]);
   const [broadcastLoading, setBroadcastLoading] = useState(false);
 
-  // Modal para Asignar Tarea del Catálogo a Equipos Existentes
+  // Modal para reasignar campaña existente a nuevos equipos
+  const [reassignCampaignModal, setReassignCampaignModal] = useState(null);
+  const [reassignSelectedRigs, setReassignSelectedRigs] = useState([]);
+  const [reassignDate, setReassignDate] = useState(new Date().toISOString().split('T')[0]);
+  const [reassignLoading, setReassignLoading] = useState(false);
+
+  // Modal para Asignar Tarea del Catálogo a Equipos
   const [assignTplModal, setAssignTplModal] = useState(null);
   const [assignSelectedRigs, setAssignSelectedRigs] = useState([]);
   const [assignDate, setAssignDate] = useState(new Date().toISOString().split('T')[0]);
@@ -128,7 +136,6 @@ export default function App() {
   const [adminDateFrom, setAdminDateFrom] = useState('');
   const [adminDateTo, setAdminDateTo] = useState('');
 
-  // Catálogo completo de Tipos de Actividades (Incluye EcoTour y Asistencia a Base)
   const activityTypes = [
     'Asistencia a DTM',
     'Tarea Planificada',
@@ -241,6 +248,11 @@ export default function App() {
     setSelectedTplIds((data || []).map(t => t.id));
   };
 
+  const loadCampaigns = async () => {
+    const { data } = await supabase.from('broadcast_campaigns').select('*').order('created_at', { ascending: false });
+    setCampaigns(data || []);
+  };
+
   const loadDailyLogs = async () => {
     if (!session) return;
     const { data } = await supabase.from('daily_logs').select('*').order('log_date', { ascending: false });
@@ -269,6 +281,7 @@ export default function App() {
     if (session) {
       loadRigs();
       loadTemplates();
+      loadCampaigns();
       loadDailyLogs();
       loadIncidents();
       loadAssets();
@@ -336,14 +349,13 @@ export default function App() {
     if (session) loadTasks();
   }, [selectedRig, session]);
 
-  // CÁLCULO DE DÍAS SIN INCIDENTES POR EQUIPO
+  // CÁLCULO DE DÍAS SIN INCIDENTES
   const calculateDaysWithoutIncidents = () => {
     if (selectedRig === 'ALL') return null;
 
     const todayDate = new Date();
     todayDate.setHours(0, 0, 0, 0);
 
-    // 1. Verificar si hay incidentes registrados para este equipo
     const rigIncidents = incidents
       .filter(inc => inc.rig_id === selectedRig)
       .sort((a, b) => new Date(b.event_date) - new Date(a.event_date));
@@ -352,26 +364,24 @@ export default function App() {
     let referenceType = '';
 
     if (rigIncidents.length > 0) {
-      // Tomamos la fecha del último incidente
-      referenceDate = new Date(rigIncidents[0].event_date);
+      referenceDate = new Date(rigIncidents[0].event_date + 'T00:00:00');
       referenceType = `Último evento (${rigIncidents[0].event_date})`;
     } else {
-      // 2. Si no hay incidentes, buscar la fecha de inicio de la primera locación registrada
       const rigLocs = allLocations
         .filter(l => l.rig_id === selectedRig)
         .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
 
       if (rigLocs.length > 0 && rigLocs[0].start_date) {
-        referenceDate = new Date(rigLocs[0].start_date);
+        referenceDate = new Date(rigLocs[0].start_date + 'T00:00:00');
         referenceType = `Desde inicio de operaciones (${rigLocs[0].start_date})`;
       } else if (currentLocation?.start_date) {
-        referenceDate = new Date(currentLocation.start_date);
+        referenceDate = new Date(currentLocation.start_date + 'T00:00:00');
         referenceType = `Spud-in actual (${currentLocation.start_date})`;
       }
     }
 
     if (!referenceDate || isNaN(referenceDate.getTime())) {
-      return { days: 0, referenceType: 'Sin datos de fecha de inicio' };
+      return { days: 0, referenceType: 'Sin datos de fecha' };
     }
 
     referenceDate.setHours(0, 0, 0, 0);
@@ -383,11 +393,11 @@ export default function App() {
 
   const daysWithoutIncidentsData = calculateDaysWithoutIncidents();
 
-  // 3. DIARIO DE ACTIVIDADES
-  const openNewLogModal = () => {
+  // 3. DIARIO DE ACTIVIDADES (PERMITE MÚLTIPLES EQUIPOS Y ACTIVIDADES EN EL MISMO DÍA)
+  const openNewLogModal = (presetRigId = null) => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
-    setLogRigId(rigs[0]?.id || '');
+    setLogRigId(presetRigId || (selectedRig !== 'ALL' ? selectedRig : (rigs[0]?.id || '')));
     setLogActivityType('Tarea Planificada');
     setLogActivities('');
     setLogPending('');
@@ -406,7 +416,10 @@ export default function App() {
 
   const handleSaveDailyLog = async (e) => {
     e.preventDefault();
-    if (!logActivities.trim() || !logRigId) return;
+    if (!logActivities.trim() || !logRigId) {
+      alert('Debes ingresar el equipo visitado y el detalle de la actividad.');
+      return;
+    }
 
     const chosenRig = rigs.find(r => r.id === logRigId);
     const rigName = chosenRig ? chosenRig.name : 'Equipo de Campo';
@@ -440,7 +453,7 @@ export default function App() {
         pending_notes: logPending.trim()
       });
 
-      if (error) alert('Error al guardar: ' + error.message);
+      if (error) alert('Error al guardar actividad diaria: ' + error.message);
       else {
         setShowLogModal(false);
         loadDailyLogs();
@@ -703,7 +716,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // TABLA 3: ENTREGA DE BIENES (Solo bienes marcados para entrega)
+      // TABLA 3: ENTREGA DE BIENES
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -762,6 +775,7 @@ export default function App() {
   // Modal Gestión y Cierre de Tarea
   const openTaskEditModal = (task) => {
     setSelectedTaskForEdit(task);
+    setEditScheduledDate(task.scheduled_date || new Date().toISOString().split('T')[0]);
     setEditStatus(task.status || 'En Progreso');
     setEditComments(task.comments || '');
     setEditClosedDate(task.closed_work_date || task.completed_date || new Date().toISOString().split('T')[0]);
@@ -777,6 +791,7 @@ export default function App() {
     const nowIso = new Date().toISOString();
 
     const payload = {
+      scheduled_date: editScheduledDate,
       status: editStatus,
       comments: editComments.trim() || null,
       completed_date: isDone ? editClosedDate : null,
@@ -867,14 +882,12 @@ export default function App() {
 
     setLoading(true);
 
-    // 1. Cerrar locación anterior
     await supabase
       .from('rig_locations')
       .update({ is_current: false, end_date: newLocDate })
       .eq('rig_id', targetRigId)
       .eq('is_current', true);
 
-    // 2. Crear nueva locación activa
     const { data: newLoc, error: locError } = await supabase
       .from('rig_locations')
       .insert({
@@ -892,10 +905,9 @@ export default function App() {
       return;
     }
 
-    // 3. Crear las tareas seleccionadas
     const chosenTemplates = templates.filter(t => selectedTplIds.includes(t.id));
     if (chosenTemplates.length > 0) {
-      const spud = new Date(newLocDate);
+      const spud = new Date(newLocDate + 'T00:00:00');
       const newTasks = chosenTemplates.map(tpl => {
         const scheduled = new Date(spud);
         scheduled.setDate(scheduled.getDate() + (tpl.days_offset || 0));
@@ -944,25 +956,29 @@ export default function App() {
     }
   };
 
-  // Lanzar Difusión Masiva desde Panel Admin (guarda en plantillas y asigna)
+  // 1. LANZAR NUEVA CAMPAÑA DE DIFUSIÓN
   const handleCreateBroadcastTask = async (e) => {
     e.preventDefault();
     if (!broadcastTitle.trim()) {
-      alert('Ingresa el título de la difusión.');
+      alert('Ingresa el título de la campaña de difusión.');
       return;
     }
 
     setBroadcastLoading(true);
 
     try {
-      const { error: tplError } = await supabase.from('task_templates').insert({
-        title: broadcastTitle.trim(),
-        description: broadcastDesc.trim() || 'Campaña / Difusión Temática',
-        stage: 'Difusión / Campaña Especial',
-        days_offset: 0
-      });
+      const { data: newCampaign, error: campError } = await supabase
+        .from('broadcast_campaigns')
+        .insert({
+          title: broadcastTitle.trim(),
+          description: broadcastDesc.trim() || 'Campaña / Difusión Temática',
+          target_date: broadcastDate,
+          created_by: currentUserProfile?.full_name || session?.user?.email
+        })
+        .select()
+        .single();
 
-      if (tplError) throw tplError;
+      if (campError) throw campError;
 
       if (broadcastSelectedRigs.length > 0) {
         const { data: activeLocs } = await supabase
@@ -984,6 +1000,7 @@ export default function App() {
           scheduled_date: broadcastDate,
           status: 'Pendiente',
           is_persistent: true,
+          broadcast_campaign_id: newCampaign.id,
           shifts_data: []
         }));
 
@@ -991,15 +1008,15 @@ export default function App() {
         if (taskError) throw taskError;
       }
 
-      alert('¡Difusión guardada en el Catálogo Maestro y asignada a los equipos seleccionados!');
+      alert('¡Campaña guardada en la biblioteca y asignada a los equipos seleccionados!');
       setBroadcastTitle('');
       setBroadcastDesc('');
       setBroadcastSelectedRigs([]);
-      loadTemplates();
+      loadCampaigns();
       loadTasks();
     } catch (err) {
       console.error(err);
-      alert('Error al guardar y asignar difusión: ' + err.message);
+      alert('Error al crear y asignar campaña: ' + err.message);
     } finally {
       setBroadcastLoading(false);
     }
@@ -1021,6 +1038,83 @@ export default function App() {
     }
   };
 
+  // 2. REASIGNAR CAMPAÑA EXISTENTE A OTROS EQUIPOS
+  const openReassignCampaignModal = async (camp) => {
+    setReassignCampaignModal(camp);
+    setReassignDate(camp.target_date || new Date().toISOString().split('T')[0]);
+
+    const { data: existingTasks } = await supabase
+      .from('tasks')
+      .select('rig_id')
+      .eq('broadcast_campaign_id', camp.id);
+
+    const alreadyAssignedRigIds = (existingTasks || []).map(t => t.rig_id);
+    const unassignedRigIds = rigs.map(r => r.id).filter(id => !alreadyAssignedRigIds.includes(id));
+    setReassignSelectedRigs(unassignedRigIds);
+  };
+
+  const handleExecuteReassignCampaign = async (e) => {
+    e.preventDefault();
+    if (!reassignCampaignModal || reassignSelectedRigs.length === 0) {
+      alert('Selecciona al menos un equipo.');
+      return;
+    }
+
+    setReassignLoading(true);
+
+    try {
+      const { data: activeLocs } = await supabase
+        .from('rig_locations')
+        .select('id, rig_id')
+        .in('rig_id', reassignSelectedRigs)
+        .eq('is_current', true);
+
+      const locMap = {};
+      (activeLocs || []).forEach(loc => {
+        locMap[loc.rig_id] = loc.id;
+      });
+
+      const tasksToInsert = reassignSelectedRigs.map(rigId => ({
+        rig_id: rigId,
+        rig_location_id: locMap[rigId] || null,
+        title: reassignCampaignModal.title,
+        description: reassignCampaignModal.description || '',
+        scheduled_date: reassignDate,
+        status: 'Pendiente',
+        is_persistent: true,
+        broadcast_campaign_id: reassignCampaignModal.id,
+        shifts_data: []
+      }));
+
+      const { error: taskError } = await supabase.from('tasks').insert(tasksToInsert);
+      if (taskError) throw taskError;
+
+      alert(`¡Campaña asignada exitosamente a ${reassignSelectedRigs.length} equipo(s)!`);
+      setReassignCampaignModal(null);
+      setReassignSelectedRigs([]);
+      loadTasks();
+    } catch (err) {
+      console.error(err);
+      alert('Error al reasignar campaña: ' + err.message);
+    } finally {
+      setReassignLoading(false);
+    }
+  };
+
+  const toggleReassignRig = (rigId) => {
+    if (reassignSelectedRigs.includes(rigId)) {
+      setReassignSelectedRigs(reassignSelectedRigs.filter(id => id !== rigId));
+    } else {
+      setReassignSelectedRigs([...reassignSelectedRigs, rigId]);
+    }
+  };
+
+  const handleDeleteCampaign = async (campId) => {
+    if (!confirm('¿Eliminar esta campaña de la biblioteca?')) return;
+    await supabase.from('broadcast_campaigns').delete().eq('id', campId);
+    loadCampaigns();
+  };
+
   // ASIGNAR CUALQUIER TAREA DEL CATÁLOGO A EQUIPOS ACTIVOS
   const handleAssignTemplateToRigs = async (e) => {
     e.preventDefault();
@@ -1034,7 +1128,7 @@ export default function App() {
     try {
       const { data: activeLocs, error: locError } = await supabase
         .from('rig_locations')
-        .select('id, rig_id')
+        .select('id, rig_id, start_date')
         .in('rig_id', assignSelectedRigs)
         .eq('is_current', true);
 
@@ -1042,23 +1136,36 @@ export default function App() {
 
       const locMap = {};
       (activeLocs || []).forEach(loc => {
-        locMap[loc.rig_id] = loc.id;
+        locMap[loc.rig_id] = loc;
       });
 
-      const tasksToInsert = assignSelectedRigs.map(rigId => ({
-        rig_id: rigId,
-        rig_location_id: locMap[rigId] || null,
-        title: assignTplModal.title,
-        description: assignTplModal.description || '',
-        scheduled_date: assignDate,
-        status: 'Pendiente',
-        is_persistent: false
-      }));
+      const offsetDays = parseInt(assignTplModal.days_offset, 10) || 0;
+
+      const tasksToInsert = assignSelectedRigs.map(rigId => {
+        const loc = locMap[rigId];
+        let calculatedDate = assignDate;
+
+        if (loc && loc.start_date) {
+          const spudDate = new Date(loc.start_date + 'T00:00:00');
+          spudDate.setDate(spudDate.getDate() + offsetDays);
+          calculatedDate = spudDate.toISOString().split('T')[0];
+        }
+
+        return {
+          rig_id: rigId,
+          rig_location_id: loc ? loc.id : null,
+          title: assignTplModal.title,
+          description: assignTplModal.description || '',
+          scheduled_date: calculatedDate,
+          status: 'Pendiente',
+          is_persistent: false
+        };
+      });
 
       const { error: insertError } = await supabase.from('tasks').insert(tasksToInsert);
       if (insertError) throw insertError;
 
-      alert(`¡Tarea asignada con éxito a ${assignSelectedRigs.length} equipo(s)!`);
+      alert(`¡Tarea asignada con éxito a ${assignSelectedRigs.length} equipo(s) con fecha según el inicio de su pad!`);
       setAssignTplModal(null);
       setAssignSelectedRigs([]);
       loadTasks();
@@ -1183,7 +1290,7 @@ export default function App() {
     if (selectedRig === rigId) setSelectedRig('ALL');
   };
 
-  // Métricas y Cálculos de Actividades para Solapa Guardia
+  // Métricas de Actividades
   const activeRigsCount = new Set(tasks.map(t => t.rig_locations?.rigs?.id || t.rigs?.id).filter(Boolean)).size || rigs.length;
 
   const getLogCount = (type) => dailyLogs.filter(l => l.activity_type === type).length;
@@ -1203,7 +1310,8 @@ export default function App() {
     otro: getLogCount('Otro')
   };
 
-  // Métricas del Panel Admin
+  // Agrupación de Jornadas Reales: 1 fecha + 1 inspector = 1 jornada trabajada
+  // independientemente de que visite 2 o más equipos en esa misma fecha.
   const filteredAdminLogs = dailyLogs.filter((log) => {
     if (adminSelectedInspector !== 'ALL' && log.user_id !== adminSelectedInspector) return false;
     if (adminDateFrom && log.log_date < adminDateFrom) return false;
@@ -1507,7 +1615,7 @@ export default function App() {
                 ))}
               </select>
 
-              {/* DETALLES DE POZO Y DÍAS SIN INCIDENTES AL SELECCIONAR EQUIPO INDIVIDUAL */}
+              {/* DETALLES DE POZO Y DÍAS SIN INCIDENTES */}
               {selectedRig !== 'ALL' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                   {currentLocation ? (
@@ -1720,7 +1828,7 @@ export default function App() {
               </form>
             )}
 
-            {/* MODAL GESTIÓN / CIERRE DE TAREA */}
+            {/* MODAL GESTIÓN / CIERRE DE TAREA (INCLUYE EDICIÓN DE FECHA PROGRAMADA) */}
             {selectedTaskForEdit && (
               <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                 <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
@@ -1741,6 +1849,22 @@ export default function App() {
                       {selectedTaskForEdit.description && (
                         <p className="text-xs text-slate-500 mt-1 leading-relaxed">{selectedTaskForEdit.description}</p>
                       )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Fecha Programada de la Tarea / Difusión:
+                      </label>
+                      <input
+                        type="date"
+                        value={editScheduledDate}
+                        onChange={(e) => setEditScheduledDate(e.target.value)}
+                        required
+                        className="w-full text-sm p-2.5 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none font-semibold text-slate-800"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-1 block">
+                        Permite reprogramar o corregir la fecha de vencimiento/lanzamiento de la tarea o campaña.
+                      </span>
                     </div>
 
                     <div>
@@ -2062,10 +2186,9 @@ export default function App() {
           </>
         )}
 
-        {/* DIARIO DE GUARDIA (14x14) CON TODAS LAS TARJETAS INFORMATIVAS */}
+        {/* DIARIO DE GUARDIA (14x14) - REGISTRA MÚLTIPLES EQUIPOS EN EL MISMO DÍA */}
         {activeTab === 'guardia' && (
           <div className="space-y-4">
-            {/* PANEL DE TODAS LAS TARJETAS INFORMATIVAS DE ACTIVIDADES */}
             <section className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
               <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
                 <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Días en DTM</span>
@@ -2136,13 +2259,13 @@ export default function App() {
                     Diario de Guardia (Diagrama 14x14) - MARBAR S.A.
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Carga diaria tipificada para emisión del parte de relevo y análisis estadístico.
+                    Carga diaria tipificada: permite registrar visitas y tareas a múltiples equipos en una misma fecha.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={openNewLogModal}
+                    onClick={() => openNewLogModal()}
                     className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-3 rounded-lg transition shadow-sm"
                   >
                     <Plus className="w-4 h-4" />
@@ -2183,9 +2306,12 @@ export default function App() {
             {showLogModal && (
               <form onSubmit={handleSaveDailyLog} className="bg-white p-5 rounded-xl shadow-lg border-2 border-amber-500 space-y-3">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-sm font-bold text-slate-800">
-                    {editingLogId ? 'Editar Actividad del Diario' : 'Registrar Actividad de Campo'}
-                  </h3>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">
+                      {editingLogId ? 'Editar Actividad del Diario' : 'Registrar Actividad de Campo'}
+                    </h3>
+                    <p className="text-[11px] text-slate-500">Puedes cargar varios equipos o actividades diferentes en la misma fecha.</p>
+                  </div>
                   <button type="button" onClick={() => setShowLogModal(false)} className="text-slate-400 hover:text-slate-700">
                     <X className="w-4 h-4" />
                   </button>
@@ -2193,30 +2319,30 @@ export default function App() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha:</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha de la Actividad:</label>
                     <input
                       type="date"
                       value={logDate}
                       onChange={(e) => setLogDate(e.target.value)}
                       required
-                      className="w-full text-sm p-2 border border-slate-300 rounded-lg"
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg font-medium"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Equipo Visitado:</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Equipo Visitado / Asignado:</label>
                     <select
                       value={logRigId}
                       onChange={(e) => setLogRigId(e.target.value)}
                       required
-                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-semibold"
                     >
                       {rigs.map((r) => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
+                        <option key={r.id} value={r.id}>🚜 {r.name}</option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Actividad:</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Actividad Realizada:</label>
                     <select
                       value={logActivityType}
                       onChange={(e) => setLogActivityType(e.target.value)}
@@ -2233,7 +2359,7 @@ export default function App() {
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Detalle de la Actividad y Hallazgos:</label>
                   <textarea
-                    placeholder="Detalle específico de lo realizado..."
+                    placeholder="Detalle específico de lo realizado en este equipo..."
                     value={logActivities}
                     onChange={(e) => setLogActivities(e.target.value)}
                     required
@@ -2245,7 +2371,7 @@ export default function App() {
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Novedades / Pendientes Relevo (Opcional):</label>
                   <textarea
-                    placeholder="Observaciones para el relevo..."
+                    placeholder="Observaciones para el relevo correspondientes a este equipo..."
                     value={logPending}
                     onChange={(e) => setLogPending(e.target.value)}
                     className="w-full text-sm p-2.5 border border-slate-300 rounded-lg"
@@ -2278,7 +2404,7 @@ export default function App() {
                         <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
                           📅 {log.log_date}
                         </span>
-                        <span className="text-xs bg-slate-100 text-slate-800 font-bold px-2 py-0.5 rounded">
+                        <span className="text-xs bg-slate-900 text-white font-bold px-2 py-0.5 rounded">
                           🚜 {log.rig_name}
                         </span>
                         <span className="text-xs bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">
@@ -2666,16 +2792,16 @@ export default function App() {
         {/* ADMIN */}
         {activeTab === 'admin' && isAdmin && (
           <div className="space-y-6">
-            {/* SECCIÓN: CREAR CAMPAÑA DE DIFUSIÓN Y ASIGNAR A EQUIPOS */}
+            {/* SECCIÓN 1: CREAR NUEVA CAMPAÑA DE DIFUSIÓN */}
             <section className="bg-white p-5 rounded-xl shadow-sm border border-purple-200 space-y-4">
               <div className="flex items-center gap-2 border-b border-purple-100 pb-2">
-                <Users className="w-5 h-5 text-purple-600" />
+                <Radio className="w-5 h-5 text-purple-600" />
                 <div>
                   <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
-                    Lanzar Campaña de Difusión Temática (Persistente)
+                    Lanzar Nueva Campaña de Difusión Temática (Persistente)
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Crea un tema que se guardará en el catálogo y se replicará en los equipos seleccionados hasta cubrir los turnos.
+                    Crea un tema obligatorio que se guardará en la biblioteca permanente para poder asignarlo ahora o a futuros equipos.
                   </p>
                 </div>
               </div>
@@ -2725,7 +2851,7 @@ export default function App() {
                   <div>
                     <div className="flex justify-between items-center mb-1">
                       <label className="block text-xs font-bold text-slate-700">
-                        Asignar a Equipos ({broadcastSelectedRigs.length}/{rigs.length}):
+                        Asignar Inicialmente a Equipos ({broadcastSelectedRigs.length}/{rigs.length}):
                       </label>
                       <button
                         type="button"
@@ -2757,9 +2883,68 @@ export default function App() {
                   disabled={broadcastLoading}
                   className="w-full bg-purple-700 hover:bg-purple-800 text-white font-bold py-2.5 rounded-lg text-xs uppercase tracking-wider transition disabled:opacity-50 shadow-sm"
                 >
-                  {broadcastLoading ? 'Guardando y asignando difusión...' : '📢 Guardar en Catálogo y Asignar Difusión'}
+                  {broadcastLoading ? 'Guardando...' : '📢 Guardar Campaña en Biblioteca y Asignar'}
                 </button>
               </form>
+            </section>
+
+            {/* SECCIÓN 2: BIBLIOTECA DE CAMPAÑAS DE DIFUSIÓN ACTIVAS */}
+            <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div className="flex items-center gap-2">
+                  <Radio className="w-5 h-5 text-purple-600" />
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                      Biblioteca de Campañas de Difusión ({campaigns.length})
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      Campañas creadas guardadas para asignar en cualquier momento a equipos nuevos o que falten.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {campaigns.length === 0 ? (
+                <p className="text-xs text-slate-400 py-4 text-center">No hay campañas registradas en la biblioteca aún.</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {campaigns.map((camp) => (
+                    <div key={camp.id} className="py-3 flex flex-wrap justify-between items-center gap-3">
+                      <div className="flex-1 min-w-[220px]">
+                        <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                          📢 {camp.title}
+                        </h4>
+                        {camp.description && (
+                          <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{camp.description}</p>
+                        )}
+                        <span className="text-[10px] text-purple-700 font-semibold bg-purple-50 px-2 py-0.5 rounded border border-purple-200 inline-block mt-1">
+                          📅 Fecha Límite: {camp.target_date}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openReassignCampaignModal(camp)}
+                          className="flex items-center gap-1 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
+                          title="Asignar esta campaña a equipos que no la tengan"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          Asignar a Equipos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCampaign(camp.id)}
+                          className="text-slate-300 hover:text-red-500 p-1.5 rounded-lg"
+                          title="Eliminar campaña de la biblioteca"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             {/* PANEL DE ANALÍTICA */}
@@ -2823,7 +3008,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* TARJETAS INFORMATIVAS COMPLETAS DEL PANEL ADMIN */}
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2.5 pt-1">
                 <div className="bg-slate-900 text-white p-3 rounded-xl col-span-2 sm:col-span-1 shadow-sm">
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Jornadas Reales</span>
@@ -3153,6 +3337,88 @@ export default function App() {
           </div>
         )}
 
+        {/* MODAL PARA REASIGNAR CAMPAÑA EXISTENTE A OTROS EQUIPOS */}
+        {reassignCampaignModal && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-purple-200 overflow-hidden">
+              <div className="bg-purple-950 text-white p-4 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-sm">Asignar Difusión a Equipos</h3>
+                  <p className="text-xs text-purple-300 truncate max-w-[280px]">{reassignCampaignModal.title}</p>
+                </div>
+                <button type="button" onClick={() => setReassignCampaignModal(null)} className="text-purple-300 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleExecuteReassignCampaign} className="p-5 space-y-4">
+                <div className="bg-purple-50 p-3 rounded-lg border border-purple-200 text-xs text-purple-900">
+                  Selecciona a qué equipos (nuevos o pendientes) deseas enviar esta campaña persistente con sus 3 turnos.
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Fecha Límite / Programada:
+                  </label>
+                  <input
+                    type="date"
+                    value={reassignDate}
+                    onChange={(e) => setReassignDate(e.target.value)}
+                    required
+                    className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Seleccionar Equipos ({reassignSelectedRigs.length}/{rigs.length}):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setReassignSelectedRigs(reassignSelectedRigs.length === rigs.length ? [] : rigs.map(r => r.id))}
+                      className="text-[11px] text-purple-600 hover:underline font-semibold"
+                    >
+                      {reassignSelectedRigs.length === rigs.length ? 'Desmarcar Todos' : 'Marcar Todos'}
+                    </button>
+                  </div>
+
+                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50 p-1.5">
+                    {rigs.map((r) => (
+                      <label key={r.id} className="flex items-center gap-2 p-2 hover:bg-purple-50/50 cursor-pointer text-xs rounded transition">
+                        <input
+                          type="checkbox"
+                          checked={reassignSelectedRigs.includes(r.id)}
+                          onChange={() => toggleReassignRig(r.id)}
+                          className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4"
+                        />
+                        <span className="font-semibold text-slate-800">🚜 {r.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setReassignCampaignModal(null)}
+                    className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-semibold"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={reassignLoading}
+                    className="px-4 py-1.5 text-xs bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-lg transition disabled:opacity-50"
+                  >
+                    {reassignLoading ? 'Asignando...' : 'Asignar a Equipos'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* MODAL PARA ASIGNAR CUALQUIER TAREA DEL CATÁLOGO A EQUIPOS EXISTENTES */}
         {assignTplModal && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -3168,15 +3434,21 @@ export default function App() {
               </div>
 
               <form onSubmit={handleAssignTemplateToRigs} className="p-5 space-y-4">
+                <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 text-xs">
+                  <span className="font-bold text-amber-900 block mb-0.5">Programación automática según Pad:</span>
+                  <p className="text-amber-800">
+                    Esta tarea está configurada para el <strong>Día +{assignTplModal.days_offset || 0}</strong> del pad. La fecha final se calculará automáticamente tomando la fecha de inicio (Spud-in) de la locación actual de cada equipo.
+                  </p>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Fecha Programada para la Tarea:
+                    Fecha de Respaldo (solo si el equipo no tiene locación activa):
                   </label>
                   <input
                     type="date"
                     value={assignDate}
                     onChange={(e) => setAssignDate(e.target.value)}
-                    required
                     className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
                   />
                 </div>
