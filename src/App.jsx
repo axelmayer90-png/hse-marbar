@@ -7,7 +7,7 @@ import {
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
   BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users,
-  Compass, Building2, Flame, Award, Radio, Send
+  Compass, Building2, Flame, Award, Radio, Send, Eye, Clock
 } from 'lucide-react';
 
 export default function App() {
@@ -103,7 +103,7 @@ export default function App() {
   const [shiftParticipants, setShiftParticipants] = useState('');
   const [shiftDate, setShiftDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Campañas de Difusión (Biblioteca y Asignación)
+  // Campañas de Difusión
   const [campaigns, setCampaigns] = useState([]);
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastDesc, setBroadcastDesc] = useState('');
@@ -111,13 +111,13 @@ export default function App() {
   const [broadcastSelectedRigs, setBroadcastSelectedRigs] = useState([]);
   const [broadcastLoading, setBroadcastLoading] = useState(false);
 
-  // Modal para reasignar campaña existente a nuevos equipos
+  // Modal reasignar campaña
   const [reassignCampaignModal, setReassignCampaignModal] = useState(null);
   const [reassignSelectedRigs, setReassignSelectedRigs] = useState([]);
   const [reassignDate, setReassignDate] = useState(new Date().toISOString().split('T')[0]);
   const [reassignLoading, setReassignLoading] = useState(false);
 
-  // Modal para Asignar Tarea del Catálogo a Equipos
+  // Modal Asignar Tarea del Catálogo
   const [assignTplModal, setAssignTplModal] = useState(null);
   const [assignSelectedRigs, setAssignSelectedRigs] = useState([]);
   const [assignDate, setAssignDate] = useState(new Date().toISOString().split('T')[0]);
@@ -393,7 +393,35 @@ export default function App() {
 
   const daysWithoutIncidentsData = calculateDaysWithoutIncidents();
 
-  // 3. DIARIO DE ACTIVIDADES (PERMITE MÚLTIPLES EQUIPOS Y ACTIVIDADES EN EL MISMO DÍA)
+  // CÁLCULO DE VISITAS Y ÚLTIMA VISITA POR EQUIPO
+  const getRigVisitsStats = (rigId) => {
+    const rigLogs = dailyLogs.filter(l => l.rig_id === rigId);
+    const totalVisits = rigLogs.length;
+
+    if (totalVisits === 0) {
+      return { totalVisits: 0, lastVisitDate: null, daysAgo: null, lastInspector: null };
+    }
+
+    // Ordenar para encontrar el más reciente
+    const sorted = [...rigLogs].sort((a, b) => new Date(b.log_date) - new Date(a.log_date));
+    const lastLog = sorted[0];
+
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+    const lastDate = new Date(lastLog.log_date + 'T00:00:00');
+    const diffDays = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    return {
+      totalVisits,
+      lastVisitDate: lastLog.log_date,
+      daysAgo: diffDays,
+      lastInspector: lastLog.user_name || 'Inspector'
+    };
+  };
+
+  const currentRigVisitsStats = selectedRig !== 'ALL' ? getRigVisitsStats(selectedRig) : null;
+
+  // 3. DIARIO DE ACTIVIDADES (MÚLTIPLES REGISTROS POR DÍA)
   const openNewLogModal = (presetRigId = null) => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
@@ -1290,172 +1318,6 @@ export default function App() {
     if (selectedRig === rigId) setSelectedRig('ALL');
   };
 
-  // Métricas de Actividades
-  const activeRigsCount = new Set(tasks.map(t => t.rig_locations?.rigs?.id || t.rigs?.id).filter(Boolean)).size || rigs.length;
-
-  const getLogCount = (type) => dailyLogs.filter(l => l.activity_type === type).length;
-  const dtmCount = new Set(dailyLogs.filter(l => l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
-
-  const activityStats = {
-    dtm: dtmCount,
-    plan: getLogCount('Tarea Planificada'),
-    drill: getLogCount('Simulacro'),
-    meeting: getLogCount('Reunión'),
-    ecotour: getLogCount('EcoTour'),
-    base: getLogCount('Asistencia a Base Operativa'),
-    inspection: getLogCount('Inspección / Auditoría'),
-    induction: getLogCount('Inducción / Capacitación'),
-    visita: getLogCount('Visita general'),
-    difusion: getLogCount('Difusión Temática'),
-    otro: getLogCount('Otro')
-  };
-
-  // Agrupación de Jornadas Reales: 1 fecha + 1 inspector = 1 jornada trabajada
-  // independientemente de que visite 2 o más equipos en esa misma fecha.
-  const filteredAdminLogs = dailyLogs.filter((log) => {
-    if (adminSelectedInspector !== 'ALL' && log.user_id !== adminSelectedInspector) return false;
-    if (adminDateFrom && log.log_date < adminDateFrom) return false;
-    if (adminDateTo && log.log_date > adminDateTo) return false;
-    return true;
-  });
-
-  const groupedDaysMap = {};
-  filteredAdminLogs.forEach((log) => {
-    const dayKey = `${log.log_date}_${log.user_id}`;
-    if (!groupedDaysMap[dayKey]) {
-      groupedDaysMap[dayKey] = {
-        date: log.log_date,
-        userId: log.user_id,
-        userName: log.user_name,
-        activitiesList: []
-      };
-    }
-    groupedDaysMap[dayKey].activitiesList.push(log);
-  });
-
-  const groupedDaysArray = Object.values(groupedDaysMap).sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  const uniqueDtmDays = new Set(
-    filteredAdminLogs
-      .filter(l => l.activity_type === 'Asistencia a DTM')
-      .map(l => `${l.log_date}_${l.user_id}`)
-  ).size;
-
-  const getAdminCount = (type) => filteredAdminLogs.filter(l => l.activity_type === type).length;
-
-  const adminStats = {
-    totalWorkDays: groupedDaysArray.length,
-    dtmDays: uniqueDtmDays,
-    plan: getAdminCount('Tarea Planificada'),
-    simulacro: getAdminCount('Simulacro'),
-    reunion: getAdminCount('Reunión'),
-    ecotour: getAdminCount('EcoTour'),
-    base: getAdminCount('Asistencia a Base Operativa'),
-    auditoria: getAdminCount('Inspección / Auditoría'),
-    capacitacion: getAdminCount('Inducción / Capacitación'),
-    visita: getAdminCount('Visita general'),
-    difusion: getAdminCount('Difusión Temática'),
-    otro: getAdminCount('Otro'),
-    totalActivities: filteredAdminLogs.length
-  };
-
-  const today = new Date().toISOString().split('T')[0];
-  const isOverdue = (scheduledDate, status) => status !== 'Completada' && scheduledDate < today;
-  const isDueToday = (scheduledDate, status) => status !== 'Completada' && scheduledDate === today;
-
-  const totalTasksCount = tasks.length;
-  const completedTasksCount = tasks.filter(t => t.status === 'Completada').length;
-  const pendingTasksCount = tasks.filter(t => t.status !== 'Completada').length;
-  const overdueTasksCount = tasks.filter(t => isOverdue(t.scheduled_date, t.status)).length;
-  const complianceRate = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
-
-  const filteredTasks = tasks.filter(t => {
-    if (filterStatus === 'Pendientes') return t.status !== 'Completada';
-    if (filterStatus === 'Completadas') return t.status === 'Completada';
-    return true;
-  });
-
-  const sortedTasks = [...filteredTasks].sort((a, b) => {
-    if (a.status === 'Completada' && b.status !== 'Completada') return 1;
-    if (a.status !== 'Completada' && b.status === 'Completada') return -1;
-    return new Date(a.scheduled_date) - new Date(b.scheduled_date);
-  });
-
-  // Login
-  if (!session) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl space-y-6">
-          <div className="text-center space-y-2">
-            <div className="inline-flex p-3 bg-amber-100 rounded-full text-amber-600 mb-1">
-              <ShieldCheck className="w-10 h-10" />
-            </div>
-            <h1 className="text-xl font-bold text-slate-900">MARBAR S.A.</h1>
-            <p className="text-xs text-slate-500">Control HSE y Operaciones en Perforación</p>
-          </div>
-
-          <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
-            {isRegistering && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre Completo:</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Juan Pérez"
-                  value={authFullName}
-                  onChange={(e) => setAuthFullName(e.target.value)}
-                  required
-                  className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Correo Electrónico:</label>
-              <input
-                type="email"
-                placeholder="usuario@marbar.com.ar"
-                value={authEmail}
-                onChange={(e) => setAuthEmail(e.target.value)}
-                required
-                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña:</label>
-              <input
-                type="password"
-                placeholder="••••••••"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                required
-                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={authLoading}
-              className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg text-sm transition disabled:opacity-50"
-            >
-              {authLoading ? 'Verificando...' : isRegistering ? 'Crear Cuenta' : 'Iniciar Sesión'}
-            </button>
-          </form>
-
-          <div className="text-center pt-2 border-t border-slate-100">
-            <button
-              onClick={() => setIsRegistering(!isRegistering)}
-              className="text-xs text-slate-600 hover:text-amber-600 font-semibold"
-            >
-              {isRegistering ? '¿Ya tienes cuenta? Inicia sesión' : '¿Nuevo usuario? Regístrate aquí'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // App Principal
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 pb-20">
       <header className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20">
@@ -1586,7 +1448,7 @@ export default function App() {
               </div>
             </section>
 
-            {/* SECCIÓN FILTRAR POR EQUIPO Y TARJETA DÍAS SIN INCIDENTES */}
+            {/* SECCIÓN FILTRAR POR EQUIPO + TARJETAS DE VISITAS Y DÍAS SIN INCIDENTES */}
             <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex justify-between items-center">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
@@ -1615,41 +1477,88 @@ export default function App() {
                 ))}
               </select>
 
-              {/* DETALLES DE POZO Y DÍAS SIN INCIDENTES */}
+              {/* DETALLES DE POZO, TRAZABILIDAD DE VISITAS Y DÍAS SIN INCIDENTES */}
               {selectedRig !== 'ALL' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                  {/* Tarjeta 1: Locación Actual */}
                   {currentLocation ? (
-                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between text-xs">
                       <div>
-                        <span className="text-slate-500">Pozo actual:</span>{' '}
-                        <strong className="text-slate-800 text-sm block">{currentLocation.location_name}</strong>
+                        <span className="text-slate-400 font-bold uppercase text-[10px] block">Locación / Pad Activo</span>
+                        <strong className="text-slate-800 text-sm block mt-0.5">{currentLocation.location_name}</strong>
                       </div>
-                      <span className="text-slate-500 font-medium">Spud-in: {currentLocation.start_date}</span>
+                      <span className="text-slate-500 font-medium text-[11px] mt-2 block">
+                        📅 Spud-in: {currentLocation.start_date}
+                      </span>
                     </div>
                   ) : (
-                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs text-slate-500 flex items-center">
-                      <span>Sin pozo activo actualmente (En traslado / DTM)</span>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-500 flex items-center">
+                      <span>Sin locación activa actualmente</span>
                     </div>
                   )}
 
-                  {daysWithoutIncidentsData && (
-                    <div className="bg-gradient-to-r from-emerald-500 to-teal-700 text-white p-3 rounded-lg shadow-sm flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="p-2 bg-white/20 rounded-lg">
-                          <Award className="w-6 h-6 text-amber-300" />
-                        </div>
+                  {/* Tarjeta 2: Cantidad y Fecha de Última Visita del Inspector */}
+                  {currentRigVisitsStats && (
+                    <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 flex flex-col justify-between text-xs">
+                      <div className="flex justify-between items-start">
                         <div>
-                          <span className="text-[11px] font-bold text-emerald-100 uppercase tracking-wider block">
+                          <span className="text-blue-800 font-bold uppercase text-[10px] flex items-center gap-1">
+                            <Eye className="w-3.5 h-3.5 text-blue-600" />
+                            Inspecciones en Equipo
+                          </span>
+                          <span className="text-xl font-black text-blue-950 block mt-0.5">
+                            {currentRigVisitsStats.totalVisits} {currentRigVisitsStats.totalVisits === 1 ? 'visita' : 'visitas'}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => openNewLogModal(selectedRig)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] px-2 py-1 rounded shadow-xs transition"
+                          title="Cargar visita rápida en este equipo"
+                        >
+                          + Visitar
+                        </button>
+                      </div>
+
+                      <div className="mt-2 text-[11px] text-blue-900 border-t border-blue-200/60 pt-1.5">
+                        {currentRigVisitsStats.lastVisitDate ? (
+                          <div className="flex justify-between items-center">
+                            <span>
+                              Última: <strong>{currentRigVisitsStats.lastVisitDate}</strong>
+                            </span>
+                            <span className={`px-1.5 py-0.2 rounded font-bold text-[10px] ${
+                              currentRigVisitsStats.daysAgo === 0 ? 'bg-emerald-100 text-emerald-800' :
+                              currentRigVisitsStats.daysAgo <= 2 ? 'bg-blue-100 text-blue-800' :
+                              currentRigVisitsStats.daysAgo <= 7 ? 'bg-amber-100 text-amber-800' :
+                              'bg-red-100 text-red-800'
+                            }`}>
+                              {currentRigVisitsStats.daysAgo === 0 ? 'Hoy' : `Hace ${currentRigVisitsStats.daysAgo} d`}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">Sin visitas registradas</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tarjeta 3: Días Sin Incidentes */}
+                  {daysWithoutIncidentsData && (
+                    <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-3 rounded-xl shadow-sm flex flex-col justify-between">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className="text-[10px] font-bold text-emerald-100 uppercase tracking-wider block">
                             Días Sin Incidentes
                           </span>
-                          <span className="text-[10px] text-emerald-100 block">
+                          <span className="text-[10px] text-emerald-200 block truncate max-w-[150px]">
                             {daysWithoutIncidentsData.referenceType}
                           </span>
                         </div>
+                        <Award className="w-5 h-5 text-amber-300" />
                       </div>
-                      <div className="text-right">
+
+                      <div className="text-right mt-1">
                         <span className="text-2xl font-black">{daysWithoutIncidentsData.days}</span>
-                        <span className="text-[11px] font-bold block uppercase text-emerald-100">Días</span>
+                        <span className="text-[10px] font-bold uppercase text-emerald-200 inline ml-1">Días</span>
                       </div>
                     </div>
                   )}
@@ -1828,7 +1737,7 @@ export default function App() {
               </form>
             )}
 
-            {/* MODAL GESTIÓN / CIERRE DE TAREA (INCLUYE EDICIÓN DE FECHA PROGRAMADA) */}
+            {/* MODAL GESTIÓN / CIERRE DE TAREA */}
             {selectedTaskForEdit && (
               <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                 <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
@@ -2139,7 +2048,7 @@ export default function App() {
                               onClick={() => openTaskEditModal(task)}
                               className="flex items-center gap-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
                             >
-                              <Edit2 className="w-3 h-3" />
+                              <Edit2 className="w-3.5 h-3.5" />
                               Gestionar / Cerrar
                             </button>
                           )}
@@ -2186,7 +2095,7 @@ export default function App() {
           </>
         )}
 
-        {/* DIARIO DE GUARDIA (14x14) - REGISTRA MÚLTIPLES EQUIPOS EN EL MISMO DÍA */}
+        {/* DIARIO DE GUARDIA (14x14) CON TODAS LAS TARJETAS INFORMATIVAS */}
         {activeTab === 'guardia' && (
           <div className="space-y-4">
             <section className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
@@ -2249,6 +2158,61 @@ export default function App() {
                 <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Total Turno</span>
                 <span className="text-xl font-black">{dailyLogs.length}</span>
                 <span className="text-[9px] text-slate-400 block">cargas registradas</span>
+              </div>
+            </section>
+
+            {/* TABLA RESUMEN DE COBERTURA Y ÚLTIMA VISITA POR EQUIPO */}
+            <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+              <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+                <Clock className="w-4 h-4 text-blue-600" />
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    Control de Cobertura y Última Visita por Equipo
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Seguimiento automático de inspecciones para asegurar la frecuencia de visitas en cada equipo.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                {rigs.map((r) => {
+                  const stats = getRigVisitsStats(r.id);
+                  return (
+                    <div key={r.id} className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
+                      <div>
+                        <strong className="text-slate-800 block text-sm">🚜 {r.name}</strong>
+                        <span className="text-slate-500 text-[11px] block mt-0.5">
+                          {stats.totalVisits} {stats.totalVisits === 1 ? 'visita cargada' : 'visitas cargadas'}
+                        </span>
+                        {stats.lastVisitDate ? (
+                          <span className="text-[10px] text-slate-400 block">
+                            Última: {stats.lastVisitDate} ({stats.lastInspector})
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-red-500 italic block">Sin visitas aún</span>
+                        )}
+                      </div>
+
+                      <div>
+                        {stats.daysAgo !== null ? (
+                          <span className={`px-2 py-1 rounded-full font-bold text-[10px] block text-center ${
+                            stats.daysAgo === 0 ? 'bg-emerald-100 text-emerald-800' :
+                            stats.daysAgo <= 2 ? 'bg-blue-100 text-blue-800' :
+                            stats.daysAgo <= 7 ? 'bg-amber-100 text-amber-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            {stats.daysAgo === 0 ? 'Hoy' : `Hace ${stats.daysAgo} d`}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-600 text-[10px]">
+                            Pendiente
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </section>
 
