@@ -7,7 +7,7 @@ import {
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
   BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users,
-  Compass, Building2, Flame, Award, Radio, Send, Eye, Clock
+  Award, Send, Eye, Clock
 } from 'lucide-react';
 
 export default function App() {
@@ -190,13 +190,21 @@ export default function App() {
   }, []);
 
   const loadUserProfile = async (userId) => {
-    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    if (data) setCurrentUserProfile(data);
+    try {
+      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+      if (data) setCurrentUserProfile(data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const loadProfiles = async () => {
-    const { data } = await supabase.from('profiles').select('*').order('full_name');
-    setProfiles(data || []);
+    try {
+      const { data } = await supabase.from('profiles').select('*').order('full_name');
+      setProfiles(data || []);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleLogin = async (e) => {
@@ -234,47 +242,75 @@ export default function App() {
 
   // 2. CARGA DE DATOS GENERALES
   const loadRigs = async () => {
-    const { data } = await supabase.from('rigs').select('*').order('name');
-    setRigs(data || []);
-    if (data && data.length > 0) {
-      if (!logRigId) setLogRigId(data[0].id);
-      if (!incRigId) setIncRigId(data[0].id);
+    try {
+      const { data } = await supabase.from('rigs').select('*').order('name');
+      setRigs(data || []);
+      if (data && data.length > 0) {
+        if (!logRigId) setLogRigId(data[0].id);
+        if (!incRigId) setIncRigId(data[0].id);
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
   const loadTemplates = async () => {
-    const { data } = await supabase.from('task_templates').select('*').order('days_offset', { ascending: true });
-    setTemplates(data || []);
-    setSelectedTplIds((data || []).map(t => t.id));
+    try {
+      const { data } = await supabase.from('task_templates').select('*').order('days_offset', { ascending: true });
+      setTemplates(data || []);
+      setSelectedTplIds((data || []).map(t => t.id));
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const loadCampaigns = async () => {
-    const { data } = await supabase.from('broadcast_campaigns').select('*').order('created_at', { ascending: false });
-    setCampaigns(data || []);
+    try {
+      const { data, error } = await supabase.from('broadcast_campaigns').select('*').order('created_at', { ascending: false });
+      if (!error && data) setCampaigns(data);
+    } catch {
+      // Ignorar si la tabla no está creada aún en Supabase
+    }
   };
 
   const loadDailyLogs = async () => {
     if (!session) return;
-    const { data } = await supabase.from('daily_logs').select('*').order('log_date', { ascending: false });
-    setDailyLogs(data || []);
+    try {
+      const { data } = await supabase.from('daily_logs').select('*').order('log_date', { ascending: false });
+      setDailyLogs(data || []);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const loadIncidents = async () => {
     if (!session) return;
-    const { data } = await supabase.from('incidents_events').select('*').order('event_date', { ascending: false });
-    setIncidents(data || []);
+    try {
+      const { data } = await supabase.from('incidents_events').select('*').order('event_date', { ascending: false });
+      setIncidents(data || []);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const loadAssets = async () => {
     if (!session) return;
-    const { data } = await supabase.from('handoff_assets').select('*').order('asset_name');
-    setAssets(data || []);
+    try {
+      const { data } = await supabase.from('handoff_assets').select('*').order('asset_name');
+      setAssets(data || []);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const loadAllLocations = async () => {
     if (!session) return;
-    const { data } = await supabase.from('rig_locations').select('*').order('start_date', { ascending: true });
-    setAllLocations(data || []);
+    try {
+      const { data } = await supabase.from('rig_locations').select('*').order('start_date', { ascending: true });
+      setAllLocations(data || []);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   useEffect(() => {
@@ -293,135 +329,149 @@ export default function App() {
     if (!session) return;
     setLoading(true);
 
-    if (selectedRig === 'ALL') {
-      const { data } = await supabase
-        .from('tasks')
-        .select(`
-          *,
-          rig_locations (
-            id,
-            location_name,
-            is_current,
+    try {
+      if (selectedRig === 'ALL') {
+        const { data } = await supabase
+          .from('tasks')
+          .select(`
+            *,
+            rig_locations (
+              id,
+              location_name,
+              is_current,
+              rigs ( id, name )
+            ),
             rigs ( id, name )
-          ),
-          rigs ( id, name )
-        `)
-        .order('scheduled_date', { ascending: true });
+          `)
+          .order('scheduled_date', { ascending: true });
 
-      setCurrentLocation(null);
-      const filtered = (data || []).filter(t => t.rig_locations?.is_current || (t.is_persistent && t.status !== 'Completada'));
-      setTasks(filtered);
-    } else {
-      const { data: locData } = await supabase
-        .from('rig_locations')
-        .select('id, location_name, start_date')
-        .eq('rig_id', selectedRig)
-        .eq('is_current', true)
-        .maybeSingle();
-
-      setCurrentLocation(locData || null);
-
-      let query = supabase
-        .from('tasks')
-        .select(`
-          *,
-          rig_locations (
-            id,
-            location_name,
-            rigs ( id, name )
-          ),
-          rigs ( id, name )
-        `);
-
-      if (locData) {
-        query = query.or(`rig_location_id.eq.${locData.id},and(rig_id.eq.${selectedRig},is_persistent.eq.true)`);
+        setCurrentLocation(null);
+        const filtered = (data || []).filter(t => t.rig_locations?.is_current || (t.is_persistent && t.status !== 'Completada'));
+        setTasks(filtered);
       } else {
-        query = query.eq('rig_id', selectedRig).eq('is_persistent', true);
-      }
+        const { data: locData } = await supabase
+          .from('rig_locations')
+          .select('id, location_name, start_date')
+          .eq('rig_id', selectedRig)
+          .eq('is_current', true)
+          .maybeSingle();
 
-      const { data: taskData } = await query.order('scheduled_date', { ascending: true });
-      setTasks(taskData || []);
+        setCurrentLocation(locData || null);
+
+        let query = supabase
+          .from('tasks')
+          .select(`
+            *,
+            rig_locations (
+              id,
+              location_name,
+              rigs ( id, name )
+            ),
+            rigs ( id, name )
+          `);
+
+        if (locData) {
+          query = query.or(`rig_location_id.eq.${locData.id},and(rig_id.eq.${selectedRig},is_persistent.eq.true)`);
+        } else {
+          query = query.eq('rig_id', selectedRig).eq('is_persistent', true);
+        }
+
+        const { data: taskData } = await query.order('scheduled_date', { ascending: true });
+        setTasks(taskData || []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
     if (session) loadTasks();
   }, [selectedRig, session]);
 
-  // CÁLCULO DE DÍAS SIN INCIDENTES
+  // CÁLCULO SEGURO DE DÍAS SIN INCIDENTES
   const calculateDaysWithoutIncidents = () => {
-    if (selectedRig === 'ALL') return null;
+    if (selectedRig === 'ALL' || !selectedRig) return null;
 
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
+    try {
+      const todayDate = new Date();
+      todayDate.setHours(0, 0, 0, 0);
 
-    const rigIncidents = incidents
-      .filter(inc => inc.rig_id === selectedRig)
-      .sort((a, b) => new Date(b.event_date) - new Date(a.event_date));
+      const rigIncidents = (incidents || [])
+        .filter(inc => inc && inc.rig_id === selectedRig)
+        .sort((a, b) => new Date(b.event_date) - new Date(a.event_date));
 
-    let referenceDate = null;
-    let referenceType = '';
+      let referenceDate = null;
+      let referenceType = '';
 
-    if (rigIncidents.length > 0) {
-      referenceDate = new Date(rigIncidents[0].event_date + 'T00:00:00');
-      referenceType = `Último evento (${rigIncidents[0].event_date})`;
-    } else {
-      const rigLocs = allLocations
-        .filter(l => l.rig_id === selectedRig)
-        .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+      if (rigIncidents.length > 0 && rigIncidents[0].event_date) {
+        referenceDate = new Date(rigIncidents[0].event_date + 'T00:00:00');
+        referenceType = `Último evento (${rigIncidents[0].event_date})`;
+      } else {
+        const rigLocs = (allLocations || [])
+          .filter(l => l && l.rig_id === selectedRig)
+          .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
 
-      if (rigLocs.length > 0 && rigLocs[0].start_date) {
-        referenceDate = new Date(rigLocs[0].start_date + 'T00:00:00');
-        referenceType = `Desde inicio de operaciones (${rigLocs[0].start_date})`;
-      } else if (currentLocation?.start_date) {
-        referenceDate = new Date(currentLocation.start_date + 'T00:00:00');
-        referenceType = `Spud-in actual (${currentLocation.start_date})`;
+        if (rigLocs.length > 0 && rigLocs[0].start_date) {
+          referenceDate = new Date(rigLocs[0].start_date + 'T00:00:00');
+          referenceType = `Desde inicio de operaciones (${rigLocs[0].start_date})`;
+        } else if (currentLocation?.start_date) {
+          referenceDate = new Date(currentLocation.start_date + 'T00:00:00');
+          referenceType = `Spud-in actual (${currentLocation.start_date})`;
+        }
       }
+
+      if (!referenceDate || isNaN(referenceDate.getTime())) {
+        return { days: 0, referenceType: 'Sin datos de fecha' };
+      }
+
+      referenceDate.setHours(0, 0, 0, 0);
+      const diffTime = todayDate.getTime() - referenceDate.getTime();
+      const diffDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+
+      return { days: diffDays, referenceType };
+    } catch {
+      return { days: 0, referenceType: 'Sin datos' };
     }
-
-    if (!referenceDate || isNaN(referenceDate.getTime())) {
-      return { days: 0, referenceType: 'Sin datos de fecha' };
-    }
-
-    referenceDate.setHours(0, 0, 0, 0);
-    const diffTime = todayDate.getTime() - referenceDate.getTime();
-    const diffDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
-
-    return { days: diffDays, referenceType };
   };
 
   const daysWithoutIncidentsData = calculateDaysWithoutIncidents();
 
-  // CÁLCULO DE VISITAS Y ÚLTIMA VISITA POR EQUIPO
+  // CÁLCULO SEGURO DE VISITAS
   const getRigVisitsStats = (rigId) => {
-    const rigLogs = dailyLogs.filter(l => l.rig_id === rigId);
+    if (!rigId) return { totalVisits: 0, lastVisitDate: null, daysAgo: null, lastInspector: null };
+
+    const rigLogs = (dailyLogs || []).filter(l => l && l.rig_id === rigId);
     const totalVisits = rigLogs.length;
 
     if (totalVisits === 0) {
       return { totalVisits: 0, lastVisitDate: null, daysAgo: null, lastInspector: null };
     }
 
-    // Ordenar para encontrar el más reciente
     const sorted = [...rigLogs].sort((a, b) => new Date(b.log_date) - new Date(a.log_date));
     const lastLog = sorted[0];
 
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
-    const lastDate = new Date(lastLog.log_date + 'T00:00:00');
-    const diffDays = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+    try {
+      const todayDate = new Date();
+      todayDate.setHours(0, 0, 0, 0);
+      const lastDate = new Date(lastLog.log_date + 'T00:00:00');
+      const diffDays = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
 
-    return {
-      totalVisits,
-      lastVisitDate: lastLog.log_date,
-      daysAgo: diffDays,
-      lastInspector: lastLog.user_name || 'Inspector'
-    };
+      return {
+        totalVisits,
+        lastVisitDate: lastLog.log_date,
+        daysAgo: isNaN(diffDays) ? null : diffDays,
+        lastInspector: lastLog.user_name || 'Inspector'
+      };
+    } catch {
+      return { totalVisits, lastVisitDate: lastLog.log_date, daysAgo: null, lastInspector: 'Inspector' };
+    }
   };
 
   const currentRigVisitsStats = selectedRig !== 'ALL' ? getRigVisitsStats(selectedRig) : null;
 
-  // 3. DIARIO DE ACTIVIDADES (MÚLTIPLES REGISTROS POR DÍA)
+  // 3. DIARIO DE ACTIVIDADES
   const openNewLogModal = (presetRigId = null) => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
@@ -481,7 +531,7 @@ export default function App() {
         pending_notes: logPending.trim()
       });
 
-      if (error) alert('Error al guardar actividad diaria: ' + error.message);
+      if (error) alert('Error al guardar actividad: ' + error.message);
       else {
         setShowLogModal(false);
         loadDailyLogs();
@@ -679,7 +729,7 @@ export default function App() {
       doc.text('1. ACTIVIDADES DIARIAS Y GESTIÓN EN CAMPO', 14, currentY);
       currentY += 3;
 
-      const tableDataLogs = dailyLogs.map((log) => [
+      const tableDataLogs = (dailyLogs || []).map((log) => [
         log.log_date || '',
         log.rig_name || '',
         log.activity_type || 'Tarea Planificada',
@@ -716,7 +766,7 @@ export default function App() {
       doc.text('2. CONTINGENCIAS, INCIDENTES Y ACCIDENTES', 14, currentY);
       currentY += 3;
 
-      const tableDataInc = incidents.map((inc) => [
+      const tableDataInc = (incidents || []).map((inc) => [
         inc.event_date || '',
         inc.rig_name || '',
         inc.event_type || '',
@@ -751,7 +801,7 @@ export default function App() {
       doc.text('3. ACTA DE ENTREGA DE BIENES Y RECURSOS ENTREGADOS (MARBAR S.A.)', 14, currentY);
       currentY += 3;
 
-      const deliveredAssets = assets.filter(a => a.is_delivered !== false);
+      const deliveredAssets = (assets || []).filter(a => a.is_delivered !== false);
       const tableDataAssets = deliveredAssets.map((a) => [
         a.asset_name,
         a.condition_status,
@@ -889,7 +939,7 @@ export default function App() {
   // Mover Equipo con Selección de Tareas
   const handleOpenMoveModal = () => {
     setMoveRigId(selectedRig === 'ALL' ? rigs[0]?.id : selectedRig);
-    setSelectedTplIds(templates.map(t => t.id));
+    setSelectedTplIds((templates || []).map(t => t.id));
     setNewLocName('');
     setNewLocDate(new Date().toISOString().split('T')[0]);
     setShowMoveModal(true);
@@ -933,7 +983,7 @@ export default function App() {
       return;
     }
 
-    const chosenTemplates = templates.filter(t => selectedTplIds.includes(t.id));
+    const chosenTemplates = (templates || []).filter(t => selectedTplIds.includes(t.id));
     if (chosenTemplates.length > 0) {
       const spud = new Date(newLocDate + 'T00:00:00');
       const newTasks = chosenTemplates.map(tpl => {
@@ -995,18 +1045,23 @@ export default function App() {
     setBroadcastLoading(true);
 
     try {
-      const { data: newCampaign, error: campError } = await supabase
-        .from('broadcast_campaigns')
-        .insert({
-          title: broadcastTitle.trim(),
-          description: broadcastDesc.trim() || 'Campaña / Difusión Temática',
-          target_date: broadcastDate,
-          created_by: currentUserProfile?.full_name || session?.user?.email
-        })
-        .select()
-        .single();
+      let createdCampaignId = null;
+      try {
+        const { data: newCampaign, error: campError } = await supabase
+          .from('broadcast_campaigns')
+          .insert({
+            title: broadcastTitle.trim(),
+            description: broadcastDesc.trim() || 'Campaña / Difusión Temática',
+            target_date: broadcastDate,
+            created_by: currentUserProfile?.full_name || session?.user?.email
+          })
+          .select()
+          .single();
 
-      if (campError) throw campError;
+        if (!campError && newCampaign) createdCampaignId = newCampaign.id;
+      } catch {
+        // En caso de que no exista la tabla broadcast_campaigns
+      }
 
       if (broadcastSelectedRigs.length > 0) {
         const { data: activeLocs } = await supabase
@@ -1028,7 +1083,7 @@ export default function App() {
           scheduled_date: broadcastDate,
           status: 'Pendiente',
           is_persistent: true,
-          broadcast_campaign_id: newCampaign.id,
+          broadcast_campaign_id: createdCampaignId,
           shifts_data: []
         }));
 
@@ -1036,7 +1091,7 @@ export default function App() {
         if (taskError) throw taskError;
       }
 
-      alert('¡Campaña guardada en la biblioteca y asignada a los equipos seleccionados!');
+      alert('¡Campaña guardada y asignada a los equipos seleccionados!');
       setBroadcastTitle('');
       setBroadcastDesc('');
       setBroadcastSelectedRigs([]);
@@ -1062,7 +1117,7 @@ export default function App() {
     if (broadcastSelectedRigs.length === rigs.length) {
       setBroadcastSelectedRigs([]);
     } else {
-      setBroadcastSelectedRigs(rigs.map(r => r.id));
+      setBroadcastSelectedRigs((rigs || []).map(r => r.id));
     }
   };
 
@@ -1071,14 +1126,18 @@ export default function App() {
     setReassignCampaignModal(camp);
     setReassignDate(camp.target_date || new Date().toISOString().split('T')[0]);
 
-    const { data: existingTasks } = await supabase
-      .from('tasks')
-      .select('rig_id')
-      .eq('broadcast_campaign_id', camp.id);
+    try {
+      const { data: existingTasks } = await supabase
+        .from('tasks')
+        .select('rig_id')
+        .eq('broadcast_campaign_id', camp.id);
 
-    const alreadyAssignedRigIds = (existingTasks || []).map(t => t.rig_id);
-    const unassignedRigIds = rigs.map(r => r.id).filter(id => !alreadyAssignedRigIds.includes(id));
-    setReassignSelectedRigs(unassignedRigIds);
+      const alreadyAssignedRigIds = (existingTasks || []).map(t => t.rig_id);
+      const unassignedRigIds = (rigs || []).map(r => r.id).filter(id => !alreadyAssignedRigIds.includes(id));
+      setReassignSelectedRigs(unassignedRigIds);
+    } catch {
+      setReassignSelectedRigs((rigs || []).map(r => r.id));
+    }
   };
 
   const handleExecuteReassignCampaign = async (e) => {
@@ -1193,7 +1252,7 @@ export default function App() {
       const { error: insertError } = await supabase.from('tasks').insert(tasksToInsert);
       if (insertError) throw insertError;
 
-      alert(`¡Tarea asignada con éxito a ${assignSelectedRigs.length} equipo(s) con fecha según el inicio de su pad!`);
+      alert(`¡Tarea asignada con éxito a ${assignSelectedRigs.length} equipo(s)!`);
       setAssignTplModal(null);
       setAssignSelectedRigs([]);
       loadTasks();
@@ -1217,21 +1276,25 @@ export default function App() {
     if (assignSelectedRigs.length === rigs.length) {
       setAssignSelectedRigs([]);
     } else {
-      setAssignSelectedRigs(rigs.map(r => r.id));
+      setAssignSelectedRigs((rigs || []).map(r => r.id));
     }
   };
 
   // Histórico
   const loadPastLocations = async () => {
-    const { data } = await supabase
-      .from('rig_locations')
-      .select('*, rigs(name)')
-      .eq('is_current', false)
-      .order('end_date', { ascending: false });
+    try {
+      const { data } = await supabase
+        .from('rig_locations')
+        .select('*, rigs(name)')
+        .eq('is_current', false)
+        .order('end_date', { ascending: false });
 
-    setPastLocations(data || []);
-    if (data && data.length > 0 && !selectedHistoryLoc) {
-      setSelectedHistoryLoc(data[0].id);
+      setPastLocations(data || []);
+      if (data && data.length > 0 && !selectedHistoryLoc) {
+        setSelectedHistoryLoc(data[0].id);
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -1318,6 +1381,171 @@ export default function App() {
     if (selectedRig === rigId) setSelectedRig('ALL');
   };
 
+  // Métricas de Actividades
+  const activeRigsCount = new Set((tasks || []).map(t => t.rig_locations?.rigs?.id || t.rigs?.id).filter(Boolean)).size || (rigs || []).length;
+
+  const getLogCount = (type) => (dailyLogs || []).filter(l => l && l.activity_type === type).length;
+  const dtmCount = new Set((dailyLogs || []).filter(l => l && l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
+
+  const activityStats = {
+    dtm: dtmCount,
+    plan: getLogCount('Tarea Planificada'),
+    drill: getLogCount('Simulacro'),
+    meeting: getLogCount('Reunión'),
+    ecotour: getLogCount('EcoTour'),
+    base: getLogCount('Asistencia a Base Operativa'),
+    inspection: getLogCount('Inspección / Auditoría'),
+    induction: getLogCount('Inducción / Capacitación'),
+    visita: getLogCount('Visita general'),
+    difusion: getLogCount('Difusión Temática'),
+    otro: getLogCount('Otro')
+  };
+
+  const filteredAdminLogs = (dailyLogs || []).filter((log) => {
+    if (!log) return false;
+    if (adminSelectedInspector !== 'ALL' && log.user_id !== adminSelectedInspector) return false;
+    if (adminDateFrom && log.log_date < adminDateFrom) return false;
+    if (adminDateTo && log.log_date > adminDateTo) return false;
+    return true;
+  });
+
+  const groupedDaysMap = {};
+  filteredAdminLogs.forEach((log) => {
+    const dayKey = `${log.log_date}_${log.user_id}`;
+    if (!groupedDaysMap[dayKey]) {
+      groupedDaysMap[dayKey] = {
+        date: log.log_date,
+        userId: log.user_id,
+        userName: log.user_name,
+        activitiesList: []
+      };
+    }
+    groupedDaysMap[dayKey].activitiesList.push(log);
+  });
+
+  const groupedDaysArray = Object.values(groupedDaysMap).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const uniqueDtmDays = new Set(
+    filteredAdminLogs
+      .filter(l => l.activity_type === 'Asistencia a DTM')
+      .map(l => `${l.log_date}_${l.user_id}`)
+  ).size;
+
+  const getAdminCount = (type) => filteredAdminLogs.filter(l => l.activity_type === type).length;
+
+  const adminStats = {
+    totalWorkDays: groupedDaysArray.length,
+    dtmDays: uniqueDtmDays,
+    plan: getAdminCount('Tarea Planificada'),
+    simulacro: getAdminCount('Simulacro'),
+    reunion: getAdminCount('Reunión'),
+    ecotour: getAdminCount('EcoTour'),
+    base: getAdminCount('Asistencia a Base Operativa'),
+    auditoria: getAdminCount('Inspección / Auditoría'),
+    capacitacion: getAdminCount('Inducción / Capacitación'),
+    visita: getAdminCount('Visita general'),
+    difusion: getAdminCount('Difusión Temática'),
+    otro: getAdminCount('Otro'),
+    totalActivities: filteredAdminLogs.length
+  };
+
+  const today = new Date().toISOString().split('T')[0];
+  const isOverdue = (scheduledDate, status) => status !== 'Completada' && scheduledDate < today;
+  const isDueToday = (scheduledDate, status) => status !== 'Completada' && scheduledDate === today;
+
+  const totalTasksCount = (tasks || []).length;
+  const completedTasksCount = (tasks || []).filter(t => t.status === 'Completada').length;
+  const pendingTasksCount = (tasks || []).filter(t => t.status !== 'Completada').length;
+  const overdueTasksCount = (tasks || []).filter(t => isOverdue(t.scheduled_date, t.status)).length;
+  const complianceRate = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
+
+  const filteredTasks = (tasks || []).filter(t => {
+    if (filterStatus === 'Pendientes') return t.status !== 'Completada';
+    if (filterStatus === 'Completadas') return t.status === 'Completada';
+    return true;
+  });
+
+  const sortedTasks = [...filteredTasks].sort((a, b) => {
+    if (a.status === 'Completada' && b.status !== 'Completada') return 1;
+    if (a.status !== 'Completada' && b.status === 'Completada') return -1;
+    return new Date(a.scheduled_date) - new Date(b.scheduled_date);
+  });
+
+  // Pantalla de Login
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl space-y-6">
+          <div className="text-center space-y-2">
+            <div className="inline-flex p-3 bg-amber-100 rounded-full text-amber-600 mb-1">
+              <ShieldCheck className="w-10 h-10" />
+            </div>
+            <h1 className="text-xl font-bold text-slate-900">MARBAR S.A.</h1>
+            <p className="text-xs text-slate-500">Control HSE y Operaciones en Perforación</p>
+          </div>
+
+          <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
+            {isRegistering && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre Completo:</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Juan Pérez"
+                  value={authFullName}
+                  onChange={(e) => setAuthFullName(e.target.value)}
+                  required
+                  className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Correo Electrónico:</label>
+              <input
+                type="email"
+                placeholder="usuario@marbar.com.ar"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                required
+                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña:</label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                required
+                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg text-sm transition disabled:opacity-50"
+            >
+              {authLoading ? 'Verificando...' : isRegistering ? 'Crear Cuenta' : 'Iniciar Sesión'}
+            </button>
+          </form>
+
+          <div className="text-center pt-2 border-t border-slate-100">
+            <button
+              onClick={() => setIsRegistering(!isRegistering)}
+              className="text-xs text-slate-600 hover:text-amber-600 font-semibold"
+            >
+              {isRegistering ? '¿Ya tienes cuenta? Inicia sesión' : '¿Nuevo usuario? Regístrate aquí'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // App Principal
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 pb-20">
       <header className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20">
@@ -1480,7 +1708,6 @@ export default function App() {
               {/* DETALLES DE POZO, TRAZABILIDAD DE VISITAS Y DÍAS SIN INCIDENTES */}
               {selectedRig !== 'ALL' && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                  {/* Tarjeta 1: Locación Actual */}
                   {currentLocation ? (
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between text-xs">
                       <div>
@@ -1497,7 +1724,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Tarjeta 2: Cantidad y Fecha de Última Visita del Inspector */}
                   {currentRigVisitsStats && (
                     <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 flex flex-col justify-between text-xs">
                       <div className="flex justify-between items-start">
@@ -1541,7 +1767,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Tarjeta 3: Días Sin Incidentes */}
                   {daysWithoutIncidentsData && (
                     <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-3 rounded-xl shadow-sm flex flex-col justify-between">
                       <div className="flex justify-between items-start">
@@ -1989,7 +2214,6 @@ export default function App() {
                             <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{task.description}</p>
                           )}
 
-                          {/* COMENTARIOS */}
                           {task.comments && (
                             <div className="mt-2 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-slate-700">
                               <span className="font-bold text-slate-900 flex items-center gap-1 mb-0.5 text-[11px] uppercase tracking-wider">
@@ -2000,7 +2224,6 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* TURNOS DE DIFUSIÓN REGISTRADOS */}
                           {task.is_persistent && (
                             <div className="mt-2.5 bg-purple-50/60 p-2.5 rounded-lg border border-purple-200 text-xs space-y-1.5">
                               <div className="flex justify-between items-center">
@@ -2048,7 +2271,7 @@ export default function App() {
                               onClick={() => openTaskEditModal(task)}
                               className="flex items-center gap-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
                             >
-                              <Edit2 className="w-3.5 h-3.5" />
+                              <Edit2 className="w-3 h-3" />
                               Gestionar / Cerrar
                             </button>
                           )}
@@ -2095,7 +2318,7 @@ export default function App() {
           </>
         )}
 
-        {/* DIARIO DE GUARDIA (14x14) CON TODAS LAS TARJETAS INFORMATIVAS */}
+        {/* DIARIO DE GUARDIA (14x14) */}
         {activeTab === 'guardia' && (
           <div className="space-y-4">
             <section className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
@@ -2156,7 +2379,7 @@ export default function App() {
               </div>
               <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-sm">
                 <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Total Turno</span>
-                <span className="text-xl font-black">{dailyLogs.length}</span>
+                <span className="text-xl font-black">{(dailyLogs || []).length}</span>
                 <span className="text-[9px] text-slate-400 block">cargas registradas</span>
               </div>
             </section>
@@ -2170,13 +2393,13 @@ export default function App() {
                     Control de Cobertura y Última Visita por Equipo
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Seguimiento automático de inspecciones para asegurar la frecuencia de visitas en cada equipo.
+                    Seguimiento de inspecciones para asegurar la frecuencia de visitas en cada equipo.
                   </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                {rigs.map((r) => {
+                {(rigs || []).map((r) => {
                   const stats = getRigVisitsStats(r.id);
                   return (
                     <div key={r.id} className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
@@ -2356,7 +2579,7 @@ export default function App() {
 
             {/* Listado Diario */}
             <div className="space-y-3">
-              {dailyLogs.length === 0 ? (
+              {(dailyLogs || []).length === 0 ? (
                 <div className="bg-white p-8 rounded-xl text-center text-slate-400 text-sm border border-dashed border-slate-300">
                   No hay actividades registradas en el diario aún.
                 </div>
@@ -2514,7 +2737,7 @@ export default function App() {
             )}
 
             <div className="space-y-3">
-              {incidents.length === 0 ? (
+              {(incidents || []).length === 0 ? (
                 <div className="bg-white p-8 rounded-xl text-center text-slate-400 text-sm border border-dashed border-slate-300">
                   No hay contingencias ni incidentes registrados en este período.
                 </div>
@@ -2626,7 +2849,7 @@ export default function App() {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {assets.map((asset) => (
+              {(assets || []).map((asset) => (
                 <div key={asset.id} className={`bg-white p-4 rounded-xl shadow-sm border transition ${asset.is_delivered !== false ? 'border-slate-200' : 'border-slate-200 opacity-60 bg-slate-50'}`}>
                   <div className="flex justify-between items-start mb-2">
                     <span className="font-bold text-slate-900 text-sm">{asset.asset_name}</span>
@@ -2705,7 +2928,7 @@ export default function App() {
                 )}
               </div>
 
-              {pastLocations.length === 0 ? (
+              {(pastLocations || []).length === 0 ? (
                 <p className="text-xs text-slate-400 py-6 text-center">
                   No hay locaciones cerradas archivadas aún.
                 </p>
@@ -2726,7 +2949,7 @@ export default function App() {
 
                   <div className="divide-y divide-slate-100 pt-3">
                     <h3 className="text-xs font-bold text-slate-600 uppercase mb-2">Detalle de Actividades</h3>
-                    {historyTasks.map((t) => (
+                    {(historyTasks || []).map((t) => (
                       <div key={t.id} className="py-2.5 flex justify-between items-center text-xs">
                         <div>
                           <p className="font-semibold text-slate-800">{t.title}</p>
@@ -2759,7 +2982,7 @@ export default function App() {
             {/* SECCIÓN 1: CREAR NUEVA CAMPAÑA DE DIFUSIÓN */}
             <section className="bg-white p-5 rounded-xl shadow-sm border border-purple-200 space-y-4">
               <div className="flex items-center gap-2 border-b border-purple-100 pb-2">
-                <Radio className="w-5 h-5 text-purple-600" />
+                <Users className="w-5 h-5 text-purple-600" />
                 <div>
                   <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
                     Lanzar Nueva Campaña de Difusión Temática (Persistente)
@@ -2815,7 +3038,7 @@ export default function App() {
                   <div>
                     <div className="flex justify-between items-center mb-1">
                       <label className="block text-xs font-bold text-slate-700">
-                        Asignar Inicialmente a Equipos ({broadcastSelectedRigs.length}/{rigs.length}):
+                        Asignar Inicialmente a Equipos ({broadcastSelectedRigs.length}/{(rigs || []).length}):
                       </label>
                       <button
                         type="button"
@@ -2827,7 +3050,7 @@ export default function App() {
                     </div>
 
                     <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50 p-1.5">
-                      {rigs.map((r) => (
+                      {(rigs || []).map((r) => (
                         <label key={r.id} className="flex items-center gap-2 p-1.5 hover:bg-purple-50/50 cursor-pointer text-xs rounded">
                           <input
                             type="checkbox"
@@ -2856,7 +3079,7 @@ export default function App() {
             <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div className="flex items-center gap-2">
-                  <Radio className="w-5 h-5 text-purple-600" />
+                  <Users className="w-5 h-5 text-purple-600" />
                   <div>
                     <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
                       Biblioteca de Campañas de Difusión ({campaigns.length})
@@ -3248,7 +3471,7 @@ export default function App() {
               <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
                 <h3 className="text-sm font-bold text-slate-700">Catálogo Maestro ({templates.length})</h3>
                 <div className="divide-y divide-slate-100">
-                  {templates.map((tpl) => (
+                  {(templates || []).map((tpl) => (
                     <div key={tpl.id} className="py-3 flex flex-wrap justify-between items-center gap-3">
                       <div className="flex-1 min-w-[200px]">
                         <h4 className="text-sm font-semibold text-slate-800">{tpl.title}</h4>
@@ -3268,7 +3491,7 @@ export default function App() {
                           type="button"
                           onClick={() => {
                             setAssignTplModal(tpl);
-                            setAssignSelectedRigs(rigs.map(r => r.id));
+                            setAssignSelectedRigs((rigs || []).map(r => r.id));
                             setAssignDate(new Date().toISOString().split('T')[0]);
                           }}
                           className="flex items-center gap-1 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-2 py-1 rounded-lg transition shadow-xs mr-1"
@@ -3336,11 +3559,11 @@ export default function App() {
                 <div>
                   <div className="flex justify-between items-center mb-1">
                     <label className="block text-xs font-bold text-slate-700">
-                      Seleccionar Equipos ({reassignSelectedRigs.length}/{rigs.length}):
+                      Seleccionar Equipos ({reassignSelectedRigs.length}/{(rigs || []).length}):
                     </label>
                     <button
                       type="button"
-                      onClick={() => setReassignSelectedRigs(reassignSelectedRigs.length === rigs.length ? [] : rigs.map(r => r.id))}
+                      onClick={() => setReassignSelectedRigs(reassignSelectedRigs.length === rigs.length ? [] : (rigs || []).map(r => r.id))}
                       className="text-[11px] text-purple-600 hover:underline font-semibold"
                     >
                       {reassignSelectedRigs.length === rigs.length ? 'Desmarcar Todos' : 'Marcar Todos'}
@@ -3348,7 +3571,7 @@ export default function App() {
                   </div>
 
                   <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50 p-1.5">
-                    {rigs.map((r) => (
+                    {(rigs || []).map((r) => (
                       <label key={r.id} className="flex items-center gap-2 p-2 hover:bg-purple-50/50 cursor-pointer text-xs rounded transition">
                         <input
                           type="checkbox"
@@ -3420,7 +3643,7 @@ export default function App() {
                 <div>
                   <div className="flex justify-between items-center mb-1">
                     <label className="block text-xs font-bold text-slate-700">
-                      Seleccionar Equipos ({assignSelectedRigs.length}/{rigs.length}):
+                      Seleccionar Equipos ({assignSelectedRigs.length}/{(rigs || []).length}):
                     </label>
                     <button
                       type="button"
@@ -3432,7 +3655,7 @@ export default function App() {
                   </div>
 
                   <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50 p-1.5">
-                    {rigs.map((r) => (
+                    {(rigs || []).map((r) => (
                       <label key={r.id} className="flex items-center gap-2 p-2 hover:bg-amber-50/50 cursor-pointer text-xs rounded transition">
                         <input
                           type="checkbox"
