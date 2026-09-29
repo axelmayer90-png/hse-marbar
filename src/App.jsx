@@ -41,6 +41,11 @@ export default function App() {
   });
   const [shiftEnd, setShiftEnd] = useState(new Date().toISOString().split('T')[0]);
 
+  // Modal para Descargar PDF con Mensaje / Comentario Largo de Relevo
+  const [showPdfModal, setShowPdfModal] = useState(false);
+  const [pdfHandoffNotes, setPdfHandoffNotes] = useState('');
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+
   // Diario de Actividades
   const [dailyLogs, setDailyLogs] = useState([]);
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
@@ -471,7 +476,7 @@ export default function App() {
 
   const currentRigVisitsStats = selectedRig !== 'ALL' ? getRigVisitsStats(selectedRig) : null;
 
-  // 3. DIARIO DE ACTIVIDADES (ABRE MODAL DESDE CUALQUIER PANTALLA)
+  // 3. DIARIO DE ACTIVIDADES
   const openNewLogModal = (presetRigId = null) => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
@@ -544,7 +549,7 @@ export default function App() {
     if (!confirm('¿Deseas eliminar este registro de actividad?')) return;
     const { error } = await supabase.from('daily_logs').delete().eq('id', id);
     if (error) {
-      alert('Error al eliminar: ' + error.message + '. Asegúrate de ejecutar el script de políticas de Administrador en Supabase.');
+      alert('Error al eliminar: ' + error.message);
     } else {
       loadDailyLogs();
     }
@@ -666,7 +671,7 @@ export default function App() {
     loadAssets();
   };
 
-  // 6. GENERACIÓN DE PDF MARBAR S.A.
+  // 6. GENERACIÓN DE PDF MARBAR S.A. (CON MENSAJE LARGO DE RELEVO)
   const getBase64ImageFromUrl = (imageUrl) => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -693,11 +698,13 @@ export default function App() {
     });
   };
 
-  const handleExportPDF = async () => {
+  const executeExportPDF = async () => {
+    setPdfGenerating(true);
     try {
       const doc = new jsPDF();
       const inspectorName = currentUserProfile?.full_name || session?.user?.email || 'Inspector HSE';
 
+      // Header Banner
       doc.setFillColor(15, 23, 42);
       doc.rect(0, 0, 210, 36, 'F');
 
@@ -795,16 +802,51 @@ export default function App() {
       });
 
       currentY = (doc.lastAutoTable ? doc.lastAutoTable.finalY : currentY + 30) + 10;
+      if (currentY > 220) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      // SECCIÓN 3: MENSAJE LARGO Y CONSIGNAS PARA EL RELEVO (SI SE INGRESÓ)
+      if (pdfHandoffNotes.trim()) {
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42);
+        doc.setFont('helvetica', 'bold');
+        doc.text('3. CONSIGNAS GENERALES Y MENSAJE PARA LA GUARDIA ENTRANTE', 14, currentY);
+        currentY += 4;
+
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(51, 65, 85);
+
+        const splitNotes = doc.splitTextToSize(pdfHandoffNotes.trim(), 182);
+        const textHeight = splitNotes.length * 4.2 + 6;
+
+        if (currentY + textHeight > 260) {
+          doc.addPage();
+          currentY = 20;
+        }
+
+        // Caja de fondo para destacar el mensaje
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.roundedRect(14, currentY, 182, textHeight, 2, 2, 'FD');
+        doc.text(splitNotes, 18, currentY + 5);
+
+        currentY += textHeight + 8;
+      }
+
       if (currentY > 230) {
         doc.addPage();
         currentY = 20;
       }
 
-      // TABLA 3: ENTREGA DE BIENES
+      // TABLA 4: ENTREGA DE BIENES (MARBAR S.A.)
+      const sectionNum = pdfHandoffNotes.trim() ? '4' : '3';
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
-      doc.text('3. ACTA DE ENTREGA DE BIENES Y RECURSOS ENTREGADOS (MARBAR S.A.)', 14, currentY);
+      doc.text(`${sectionNum}. ACTA DE ENTREGA DE BIENES Y RECURSOS ENTREGADOS (MARBAR S.A.)`, 14, currentY);
       currentY += 3;
 
       const deliveredAssets = (assets || []).filter(a => a.is_delivered !== false);
@@ -848,9 +890,12 @@ export default function App() {
       doc.text('MARBAR S.A. - Guardia Entrante', 135, currentY + 9);
 
       doc.save(`Relevo_MARBAR_SA_${shiftStart}_al_${shiftEnd}.pdf`);
+      setShowPdfModal(false);
     } catch (err) {
       console.error(err);
       alert('Error al generar PDF: ' + err.message);
+    } finally {
+      setPdfGenerating(false);
     }
   };
 
@@ -1391,7 +1436,7 @@ export default function App() {
   const getLogCount = (type) => (dailyLogs || []).filter(l => l && l.activity_type === type).length;
   const dtmCount = new Set((dailyLogs || []).filter(l => l && l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
 
-  // CORRECCIÓN: Contar días únicos reales de guardia trabajados (no acumular si hay 2 visitas en la misma fecha)
+  // Días únicos reales trabajados en el turno
   const uniqueWorkDaysInLogs = new Set((dailyLogs || []).map(l => l.log_date)).size;
 
   const activityStats = {
@@ -1408,7 +1453,6 @@ export default function App() {
     otro: getLogCount('Otro')
   };
 
-  // Filtrado y agrupación segura en Panel Admin
   const filteredAdminLogs = (dailyLogs || []).filter((log) => {
     if (!log) return false;
     if (adminSelectedInspector !== 'ALL' && log.user_id !== adminSelectedInspector) return false;
@@ -1742,7 +1786,7 @@ export default function App() {
                             {currentRigVisitsStats.totalVisits} {currentRigVisitsStats.totalVisits === 1 ? 'visita' : 'visitas'}
                           </span>
                         </div>
-                        {/* BOTÓN +VISITAR TOTALMENTE FUNCIONAL */}
+                        {/* Botón +Visitar funcional */}
                         <button
                           type="button"
                           onClick={() => openNewLogModal(selectedRig)}
@@ -2275,7 +2319,7 @@ export default function App() {
                               onClick={() => openTaskEditModal(task)}
                               className="flex items-center gap-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
                             >
-                              <Edit2 className="w-3.5 h-3.5" />
+                              <Edit2 className="w-3 h-3" />
                               Gestionar / Cerrar
                             </button>
                           )}
@@ -2381,7 +2425,6 @@ export default function App() {
                 <span className="text-xl font-black text-slate-900">{activityStats.otro}</span>
                 <span className="text-[9px] text-slate-500 block">actividades</span>
               </div>
-              {/* TARJETA CORREGIDA: DÍAS REALES TRABAJADOS EN EL TURNO (DÍAS ÚNICOS) */}
               <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-sm">
                 <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Días en Campo</span>
                 <span className="text-xl font-black">{uniqueWorkDaysInLogs}</span>
@@ -2464,7 +2507,7 @@ export default function App() {
                     + Actividad Diaria
                   </button>
                   <button
-                    onClick={handleExportPDF}
+                    onClick={() => setShowPdfModal(true)}
                     className="flex items-center gap-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-4 rounded-lg transition shadow-sm"
                   >
                     <FileDown className="w-4 h-4 text-amber-400" />
@@ -3439,6 +3482,65 @@ export default function App() {
                 </div>
               </div>
             </section>
+          </div>
+        )}
+
+        {/* MODAL PARA DESCARGAR PDF CON COMENTARIOS Y MENSAJE DE RELEVO */}
+        {showPdfModal && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base">Emisión de Relevo y Cambio de Guardia</h3>
+                  <p className="text-xs text-slate-400">MARBAR S.A. - Parte Oficial de Guardia</p>
+                </div>
+                <button type="button" onClick={() => setShowPdfModal(false)} className="text-slate-400 hover:text-white p-1">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 overflow-y-auto">
+                <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200 text-xs text-amber-900">
+                  <strong className="block mb-0.5">Mensaje para la guardia entrante / Reemplazo:</strong>
+                  Puedes redactar un texto largo con observaciones generales, puntos críticos para los próximos días, recomendaciones de seguridad y estados de pozo. Este mensaje figurará en una sección especial en el PDF descargado.
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Comentarios, Novedades y Consignas para el Reemplazo:
+                  </label>
+                  <textarea
+                    value={pdfHandoffNotes}
+                    onChange={(e) => setPdfHandoffNotes(e.target.value)}
+                    placeholder="Escribe aquí las instrucciones de relevo, seguimiento de pozos, tareas pendientes de auditoría o novedades clave a tener en cuenta a futuro..."
+                    rows={6}
+                    className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-400 block mt-1">
+                    * Si dejas el campo vacío, el informe se generará únicamente con las tablas de actividades, contingencias y bienes.
+                  </span>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowPdfModal(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pdfGenerating}
+                    onClick={executeExportPDF}
+                    className="px-5 py-2 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <FileDown className="w-4 h-4 text-amber-400" />
+                    {pdfGenerating ? 'Generando PDF...' : 'Generar y Descargar PDF'}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
