@@ -269,7 +269,7 @@ export default function App() {
       const { data, error } = await supabase.from('broadcast_campaigns').select('*').order('created_at', { ascending: false });
       if (!error && data) setCampaigns(data);
     } catch {
-      // Ignorar si la tabla no está creada aún en Supabase
+      // Ignorar si no existe la tabla
     }
   };
 
@@ -390,7 +390,7 @@ export default function App() {
     if (session) loadTasks();
   }, [selectedRig, session]);
 
-  // CÁLCULO SEGURO DE DÍAS SIN INCIDENTES
+  // DÍAS SIN INCIDENTES
   const calculateDaysWithoutIncidents = () => {
     if (selectedRig === 'ALL' || !selectedRig) return null;
 
@@ -438,7 +438,7 @@ export default function App() {
 
   const daysWithoutIncidentsData = calculateDaysWithoutIncidents();
 
-  // CÁLCULO SEGURO DE VISITAS
+  // VISITAS POR EQUIPO
   const getRigVisitsStats = (rigId) => {
     if (!rigId) return { totalVisits: 0, lastVisitDate: null, daysAgo: null, lastInspector: null };
 
@@ -471,11 +471,12 @@ export default function App() {
 
   const currentRigVisitsStats = selectedRig !== 'ALL' ? getRigVisitsStats(selectedRig) : null;
 
-  // 3. DIARIO DE ACTIVIDADES
+  // 3. DIARIO DE ACTIVIDADES (ABRE MODAL DESDE CUALQUIER PANTALLA)
   const openNewLogModal = (presetRigId = null) => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
-    setLogRigId(presetRigId || (selectedRig !== 'ALL' ? selectedRig : (rigs[0]?.id || '')));
+    const targetRig = presetRigId || (selectedRig !== 'ALL' ? selectedRig : (rigs[0]?.id || ''));
+    setLogRigId(targetRig);
     setLogActivityType('Tarea Planificada');
     setLogActivities('');
     setLogPending('');
@@ -540,9 +541,13 @@ export default function App() {
   };
 
   const handleDeleteDailyLog = async (id) => {
-    if (!confirm('¿Eliminar registro de actividad?')) return;
-    await supabase.from('daily_logs').delete().eq('id', id);
-    loadDailyLogs();
+    if (!confirm('¿Deseas eliminar este registro de actividad?')) return;
+    const { error } = await supabase.from('daily_logs').delete().eq('id', id);
+    if (error) {
+      alert('Error al eliminar: ' + error.message + '. Asegúrate de ejecutar el script de políticas de Administrador en Supabase.');
+    } else {
+      loadDailyLogs();
+    }
   };
 
   // 4. EVENTOS Y CONTINGENCIAS
@@ -610,8 +615,9 @@ export default function App() {
 
   const handleDeleteIncident = async (id) => {
     if (!confirm('¿Eliminar contingencia?')) return;
-    await supabase.from('incidents_events').delete().eq('id', id);
-    loadIncidents();
+    const { error } = await supabase.from('incidents_events').delete().eq('id', id);
+    if (error) alert('Error: ' + error.message);
+    else loadIncidents();
   };
 
   // 5. BIENES Y RECURSOS
@@ -895,7 +901,7 @@ export default function App() {
     setIsSavingTaskModal(false);
   };
 
-  // Registro de Asistencia por Turnos para Difusiones
+  // Registro Asistencia por Turno
   const openShiftModal = (task) => {
     setShiftTask(task);
     setShiftName('Turno Mañana / Turno 1');
@@ -936,7 +942,7 @@ export default function App() {
     setTasks(tasks.filter(t => t.id !== taskId));
   };
 
-  // Mover Equipo con Selección de Tareas
+  // Mover Equipo
   const handleOpenMoveModal = () => {
     setMoveRigId(selectedRig === 'ALL' ? rigs[0]?.id : selectedRig);
     setSelectedTplIds((templates || []).map(t => t.id));
@@ -1006,7 +1012,6 @@ export default function App() {
     loadTasks();
   };
 
-  // Crear Tarea Eventual o Difusión Persistente desde Operaciones
   const handleCreateExtraTask = async (e) => {
     e.preventDefault();
     const targetRig = selectedRig === 'ALL' ? rigs[0]?.id : selectedRig;
@@ -1034,7 +1039,7 @@ export default function App() {
     }
   };
 
-  // 1. LANZAR NUEVA CAMPAÑA DE DIFUSIÓN
+  // Campañas de Difusión
   const handleCreateBroadcastTask = async (e) => {
     e.preventDefault();
     if (!broadcastTitle.trim()) {
@@ -1060,7 +1065,7 @@ export default function App() {
 
         if (!campError && newCampaign) createdCampaignId = newCampaign.id;
       } catch {
-        // En caso de que no exista la tabla broadcast_campaigns
+        // En caso de que no exista tabla
       }
 
       if (broadcastSelectedRigs.length > 0) {
@@ -1121,7 +1126,6 @@ export default function App() {
     }
   };
 
-  // 2. REASIGNAR CAMPAÑA EXISTENTE A OTROS EQUIPOS
   const openReassignCampaignModal = async (camp) => {
     setReassignCampaignModal(camp);
     setReassignDate(camp.target_date || new Date().toISOString().split('T')[0]);
@@ -1202,7 +1206,7 @@ export default function App() {
     loadCampaigns();
   };
 
-  // ASIGNAR CUALQUIER TAREA DEL CATÁLOGO A EQUIPOS ACTIVOS
+  // Asignar tareas catálogo
   const handleAssignTemplateToRigs = async (e) => {
     e.preventDefault();
     if (!assignTplModal || assignSelectedRigs.length === 0) {
@@ -1252,7 +1256,7 @@ export default function App() {
       const { error: insertError } = await supabase.from('tasks').insert(tasksToInsert);
       if (insertError) throw insertError;
 
-      alert(`¡Tarea asignada con éxito a ${assignSelectedRigs.length} equipo(s)!`);
+      alert(`¡Tarea asignada con éxito a ${assignSelectedRigs.length} equipo(s) con fecha según el inicio de su pad!`);
       setAssignTplModal(null);
       setAssignSelectedRigs([]);
       loadTasks();
@@ -1387,6 +1391,9 @@ export default function App() {
   const getLogCount = (type) => (dailyLogs || []).filter(l => l && l.activity_type === type).length;
   const dtmCount = new Set((dailyLogs || []).filter(l => l && l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
 
+  // CORRECCIÓN: Contar días únicos reales de guardia trabajados (no acumular si hay 2 visitas en la misma fecha)
+  const uniqueWorkDaysInLogs = new Set((dailyLogs || []).map(l => l.log_date)).size;
+
   const activityStats = {
     dtm: dtmCount,
     plan: getLogCount('Tarea Planificada'),
@@ -1401,6 +1408,7 @@ export default function App() {
     otro: getLogCount('Otro')
   };
 
+  // Filtrado y agrupación segura en Panel Admin
   const filteredAdminLogs = (dailyLogs || []).filter((log) => {
     if (!log) return false;
     if (adminSelectedInspector !== 'ALL' && log.user_id !== adminSelectedInspector) return false;
@@ -1471,7 +1479,6 @@ export default function App() {
     return new Date(a.scheduled_date) - new Date(b.scheduled_date);
   });
 
-  // Pantalla de Login
   if (!session) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -1545,7 +1552,6 @@ export default function App() {
     );
   }
 
-  // App Principal
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 pb-20">
       <header className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20">
@@ -1736,10 +1742,11 @@ export default function App() {
                             {currentRigVisitsStats.totalVisits} {currentRigVisitsStats.totalVisits === 1 ? 'visita' : 'visitas'}
                           </span>
                         </div>
+                        {/* BOTÓN +VISITAR TOTALMENTE FUNCIONAL */}
                         <button
+                          type="button"
                           onClick={() => openNewLogModal(selectedRig)}
-                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] px-2 py-1 rounded shadow-xs transition"
-                          title="Cargar visita rápida en este equipo"
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-2.5 py-1 rounded shadow-sm transition active:scale-95 cursor-pointer"
                         >
                           + Visitar
                         </button>
@@ -1907,7 +1914,7 @@ export default function App() {
               </form>
             )}
 
-            {/* MODAL TAREA EVENTUAL / DIFUSIÓN PERSISTENTE */}
+            {/* MODAL TAREA EVENTUAL */}
             {showTaskModal && (
               <form onSubmit={handleCreateExtraTask} className="bg-white p-5 rounded-xl shadow-lg border border-slate-300 space-y-3">
                 <h3 className="text-sm font-bold text-slate-800">Agregar Tarea Eventual / Campaña de Difusión</h3>
@@ -1996,9 +2003,6 @@ export default function App() {
                         required
                         className="w-full text-sm p-2.5 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none font-semibold text-slate-800"
                       />
-                      <span className="text-[10px] text-slate-500 mt-1 block">
-                        Permite reprogramar o corregir la fecha de vencimiento/lanzamiento de la tarea o campaña.
-                      </span>
                     </div>
 
                     <div>
@@ -2079,7 +2083,7 @@ export default function App() {
               </div>
             )}
 
-            {/* MODAL REGISTRO DE ASISTENCIA POR TURNO */}
+            {/* MODAL ASISTENCIA POR TURNO */}
             {shiftTask && (
               <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                 <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
@@ -2271,7 +2275,7 @@ export default function App() {
                               onClick={() => openTaskEditModal(task)}
                               className="flex items-center gap-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
                             >
-                              <Edit2 className="w-3 h-3" />
+                              <Edit2 className="w-3.5 h-3.5" />
                               Gestionar / Cerrar
                             </button>
                           )}
@@ -2377,14 +2381,15 @@ export default function App() {
                 <span className="text-xl font-black text-slate-900">{activityStats.otro}</span>
                 <span className="text-[9px] text-slate-500 block">actividades</span>
               </div>
+              {/* TARJETA CORREGIDA: DÍAS REALES TRABAJADOS EN EL TURNO (DÍAS ÚNICOS) */}
               <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-sm">
-                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Total Turno</span>
-                <span className="text-xl font-black">{(dailyLogs || []).length}</span>
-                <span className="text-[9px] text-slate-400 block">cargas registradas</span>
+                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Días en Campo</span>
+                <span className="text-xl font-black">{uniqueWorkDaysInLogs}</span>
+                <span className="text-[9px] text-slate-400 block">jornadas reales (14x14)</span>
               </div>
             </section>
 
-            {/* TABLA RESUMEN DE COBERTURA Y ÚLTIMA VISITA POR EQUIPO */}
+            {/* TABLA RESUMEN DE COBERTURA Y ÚLTIMA VISITA */}
             <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
                 <Clock className="w-4 h-4 text-blue-600" />
@@ -2489,93 +2494,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-
-            {showLogModal && (
-              <form onSubmit={handleSaveDailyLog} className="bg-white p-5 rounded-xl shadow-lg border-2 border-amber-500 space-y-3">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-800">
-                      {editingLogId ? 'Editar Actividad del Diario' : 'Registrar Actividad de Campo'}
-                    </h3>
-                    <p className="text-[11px] text-slate-500">Puedes cargar varios equipos o actividades diferentes en la misma fecha.</p>
-                  </div>
-                  <button type="button" onClick={() => setShowLogModal(false)} className="text-slate-400 hover:text-slate-700">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha de la Actividad:</label>
-                    <input
-                      type="date"
-                      value={logDate}
-                      onChange={(e) => setLogDate(e.target.value)}
-                      required
-                      className="w-full text-sm p-2 border border-slate-300 rounded-lg font-medium"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Equipo Visitado / Asignado:</label>
-                    <select
-                      value={logRigId}
-                      onChange={(e) => setLogRigId(e.target.value)}
-                      required
-                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-semibold"
-                    >
-                      {rigs.map((r) => (
-                        <option key={r.id} value={r.id}>🚜 {r.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Actividad Realizada:</label>
-                    <select
-                      value={logActivityType}
-                      onChange={(e) => setLogActivityType(e.target.value)}
-                      required
-                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-medium"
-                    >
-                      {activityTypes.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Detalle de la Actividad y Hallazgos:</label>
-                  <textarea
-                    placeholder="Detalle específico de lo realizado en este equipo..."
-                    value={logActivities}
-                    onChange={(e) => setLogActivities(e.target.value)}
-                    required
-                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    rows={3}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Novedades / Pendientes Relevo (Opcional):</label>
-                  <textarea
-                    placeholder="Observaciones para el relevo correspondientes a este equipo..."
-                    value={logPending}
-                    onChange={(e) => setLogPending(e.target.value)}
-                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg"
-                    rows={2}
-                  />
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <button type="button" onClick={() => setShowLogModal(false)} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">
-                    Cancelar
-                  </button>
-                  <button type="submit" className="px-4 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition">
-                    {editingLogId ? 'Actualizar Actividad' : 'Guardar en Mi Diario'}
-                  </button>
-                </div>
-              </form>
-            )}
 
             {/* Listado Diario */}
             <div className="space-y-3">
@@ -3075,7 +2993,7 @@ export default function App() {
               </form>
             </section>
 
-            {/* SECCIÓN 2: BIBLIOTECA DE CAMPAÑAS DE DIFUSIÓN ACTIVAS */}
+            {/* SECCIÓN 2: BIBLIOTECA DE CAMPAÑAS */}
             <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div className="flex items-center gap-2">
@@ -3292,7 +3210,7 @@ export default function App() {
                             </span>
                           </div>
                           <span className="text-[11px] bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded-full border border-amber-200">
-                            {day.activitiesList.length} {day.activitiesList.length === 1 ? 'actividad en la jornada' : 'actividades en la jornada'}
+                            {day.activitiesList.length} {day.activitiesList.length === 1 ? 'actividad' : 'actividades'}
                           </span>
                         </div>
 
@@ -3524,6 +3442,98 @@ export default function App() {
           </div>
         )}
 
+        {/* MODAL GLOBAL PARA REGISTRAR ACTIVIDAD DIARIA */}
+        {showLogModal && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base">
+                    {editingLogId ? 'Editar Actividad del Diario' : 'Registrar Actividad de Campo'}
+                  </h3>
+                  <p className="text-xs text-slate-400">Puedes cargar varios equipos o actividades diferentes en la misma fecha.</p>
+                </div>
+                <button type="button" onClick={() => setShowLogModal(false)} className="text-slate-400 hover:text-white p-1">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveDailyLog} className="p-5 space-y-4 overflow-y-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha de la Actividad:</label>
+                    <input
+                      type="date"
+                      value={logDate}
+                      onChange={(e) => setLogDate(e.target.value)}
+                      required
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Equipo Visitado / Asignado:</label>
+                    <select
+                      value={logRigId}
+                      onChange={(e) => setLogRigId(e.target.value)}
+                      required
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-semibold"
+                    >
+                      {rigs.map((r) => (
+                        <option key={r.id} value={r.id}>🚜 {r.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Actividad:</label>
+                    <select
+                      value={logActivityType}
+                      onChange={(e) => setLogActivityType(e.target.value)}
+                      required
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-medium"
+                    >
+                      {activityTypes.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Detalle de la Actividad y Hallazgos:</label>
+                  <textarea
+                    placeholder="Detalle específico de lo realizado en este equipo..."
+                    value={logActivities}
+                    onChange={(e) => setLogActivities(e.target.value)}
+                    required
+                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    rows={3}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Novedades / Pendientes Relevo (Opcional):</label>
+                  <textarea
+                    placeholder="Observaciones para el relevo correspondientes a este equipo..."
+                    value={logPending}
+                    onChange={(e) => setLogPending(e.target.value)}
+                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg"
+                    rows={2}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button type="button" onClick={() => setShowLogModal(false)} className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-semibold">
+                    Cancelar
+                  </button>
+                  <button type="submit" className="px-4 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition">
+                    {editingLogId ? 'Actualizar Actividad' : 'Guardar en Mi Diario'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* MODAL PARA REASIGNAR CAMPAÑA EXISTENTE A OTROS EQUIPOS */}
         {reassignCampaignModal && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -3540,7 +3550,7 @@ export default function App() {
 
               <form onSubmit={handleExecuteReassignCampaign} className="p-5 space-y-4">
                 <div className="bg-purple-50 p-3 rounded-lg border border-purple-200 text-xs text-purple-900">
-                  Selecciona a qué equipos (nuevos o pendientes) deseas enviar esta campaña persistente con sus 3 turnos.
+                  Selecciona a qué equipos deseas enviar esta campaña persistente con sus turnos.
                 </div>
 
                 <div>
