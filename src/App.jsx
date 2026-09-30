@@ -11,16 +11,20 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // Función auxiliar para formatear fechas a DD/MM/YYYY
+  // Función auxiliar ultra segura para formatear a DD/MM/YYYY
   const formatDateDDMMYYYY = (dateStr) => {
-    if (!dateStr) return '-';
-    // Si viene en formato ISO o YYYY-MM-DD
-    const parts = dateStr.split('T')[0].split('-');
-    if (parts.length === 3) {
-      const [year, month, day] = parts;
-      return `${day}/${month}/${year}`;
+    if (!dateStr || typeof dateStr !== 'string') return '-';
+    try {
+      const cleanDate = dateStr.split('T')[0];
+      const parts = cleanDate.split('-');
+      if (parts.length === 3) {
+        const [year, month, day] = parts;
+        return `${day}/${month}/${year}`;
+      }
+      return dateStr;
+    } catch {
+      return '-';
     }
-    return dateStr;
   };
 
   // Autenticación
@@ -306,7 +310,7 @@ export default function App() {
       const { data, error } = await supabase.from('broadcast_campaigns').select('*').order('created_at', { ascending: false });
       if (!error && data) setCampaigns(data);
     } catch {
-      // Ignorar si no existe tabla
+      // Ignorar
     }
   };
 
@@ -508,51 +512,59 @@ export default function App() {
 
   const currentRigVisitsStats = selectedRig !== 'ALL' ? getRigVisitsStats(selectedRig) : null;
 
-  // Lógica y Filtros de la Solapa de Contingencias
+  // Lógica de Filtros en Contingencias (Ultra seguro)
   const availableIncidentYears = useMemo(() => {
-    const yearsSet = new Set((incidents || []).map(inc => inc.event_date?.split('-')[0]).filter(Boolean));
-    return Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
+    try {
+      const yearsSet = new Set((incidents || []).map(inc => inc?.event_date ? inc.event_date.split('-')[0] : null).filter(Boolean));
+      return Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
+    } catch {
+      return [];
+    }
   }, [incidents]);
 
   const filteredIncidents = useMemo(() => {
-    return (incidents || []).filter(inc => {
-      if (!inc.event_date) return false;
-      const [year, month] = inc.event_date.split('-');
-      if (incFilterYear !== 'ALL' && year !== incFilterYear) return false;
-      if (incFilterMonth !== 'ALL' && month !== incFilterMonth) return false;
-      return true;
-    });
+    try {
+      return (incidents || []).filter(inc => {
+        if (!inc || !inc.event_date) return false;
+        const parts = inc.event_date.split('-');
+        if (parts.length < 2) return false;
+        const [year, month] = parts;
+        if (incFilterYear !== 'ALL' && year !== incFilterYear) return false;
+        if (incFilterMonth !== 'ALL' && month !== incFilterMonth) return false;
+        return true;
+      });
+    } catch {
+      return [];
+    }
   }, [incidents, incFilterYear, incFilterMonth]);
 
-  // Contadores por Tipo de Evento
   const incidentTypeStats = useMemo(() => {
     const stats = {};
     incidentTypes.forEach(t => { stats[t] = 0; });
-    filteredIncidents.forEach(inc => {
-      if (stats[inc.event_type] !== undefined) {
-        stats[inc.event_type]++;
-      } else {
+    (filteredIncidents || []).forEach(inc => {
+      if (inc && inc.event_type) {
         stats[inc.event_type] = (stats[inc.event_type] || 0) + 1;
       }
     });
     return stats;
   }, [filteredIncidents]);
 
-  // Contadores de Eventos por Equipo
   const incidentRigStats = useMemo(() => {
     const stats = {};
     (rigs || []).forEach(r => { stats[r.id] = { name: r.name, count: 0 }; });
-    filteredIncidents.forEach(inc => {
-      if (stats[inc.rig_id]) {
-        stats[inc.rig_id].count++;
-      } else {
-        stats[inc.rig_id] = { name: inc.rig_name || 'Equipo', count: 1 };
+    (filteredIncidents || []).forEach(inc => {
+      if (inc) {
+        if (stats[inc.rig_id]) {
+          stats[inc.rig_id].count++;
+        } else if (inc.rig_id) {
+          stats[inc.rig_id] = { name: inc.rig_name || 'Equipo', count: 1 };
+        }
       }
     });
     return Object.values(stats);
   }, [filteredIncidents, rigs]);
 
-  // 3. DIARIO DE ACTIVIDADES (ABRE MODAL DESDE CUALQUIER PANTALLA)
+  // DIARIO DE ACTIVIDADES
   const openNewLogModal = (presetRigId = null) => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
@@ -625,13 +637,13 @@ export default function App() {
     if (!confirm('¿Deseas eliminar este registro de actividad?')) return;
     const { error } = await supabase.from('daily_logs').delete().eq('id', id);
     if (error) {
-      alert('Error al eliminar: ' + error.message + '. Asegúrate de ejecutar el script de políticas de Administrador en Supabase.');
+      alert('Error al eliminar: ' + error.message);
     } else {
       loadDailyLogs();
     }
   };
 
-  // 4. EVENTOS Y CONTINGENCIAS
+  // EVENTOS Y CONTINGENCIAS
   const openNewIncModal = () => {
     setEditingIncId(null);
     setIncDate(new Date().toISOString().split('T')[0]);
@@ -701,7 +713,7 @@ export default function App() {
     else loadIncidents();
   };
 
-  // 5. BIENES Y RECURSOS
+  // BIENES Y RECURSOS
   const handleSaveAsset = async (e) => {
     e.preventDefault();
     if (!newAssetName.trim()) return;
@@ -747,236 +759,7 @@ export default function App() {
     loadAssets();
   };
 
-  // 6. GENERACIÓN DE PDF MARBAR S.A.
-  const getBase64ImageFromUrl = (imageUrl) => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.crossOrigin = 'Anonymous';
-      const timer = setTimeout(() => resolve(null), 800);
-      img.onload = () => {
-        clearTimeout(timer);
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.naturalWidth || img.width;
-          canvas.height = img.naturalHeight || img.height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0);
-          resolve(canvas.toDataURL('image/png'));
-        } catch {
-          resolve(null);
-        }
-      };
-      img.onerror = () => {
-        clearTimeout(timer);
-        resolve(null);
-      };
-      img.src = imageUrl;
-    });
-  };
-
-  const executeExportPDF = async () => {
-    setPdfGenerating(true);
-    try {
-      const doc = new jsPDF();
-      const inspectorName = currentUserProfile?.full_name || session?.user?.email || 'Inspector HSE';
-
-      // Header Banner
-      doc.setFillColor(15, 23, 42);
-      doc.rect(0, 0, 210, 36, 'F');
-
-      const logoBase64 = await getBase64ImageFromUrl('/logo.png');
-      if (logoBase64) {
-        try {
-          doc.addImage(logoBase64, 'PNG', 12, 6, 42, 22);
-        } catch {
-          doc.setFontSize(14);
-          doc.setTextColor(132, 204, 22);
-          doc.text('MARBAR S.A.', 14, 18);
-        }
-      } else {
-        doc.setFontSize(14);
-        doc.setTextColor(132, 204, 22);
-        doc.text('MARBAR S.A.', 14, 18);
-      }
-
-      doc.setFontSize(12);
-      doc.setTextColor(255, 255, 255);
-      doc.text('INFORME DE RELEVO Y CAMBIO DE GUARDIA', 60, 14);
-
-      doc.setFontSize(8.5);
-      doc.setTextColor(203, 213, 225);
-      doc.text(`Razón Social: MARBAR S.A. | Emisión: ${formatDateDDMMYYYY(new Date().toISOString().split('T')[0])}`, 60, 20);
-      doc.text(`Inspector Saliente: ${inspectorName}`, 60, 25);
-      doc.text(`Período de Diagrama (14x14): Desde ${formatDateDDMMYYYY(shiftStart)} hasta ${formatDateDDMMYYYY(shiftEnd)}`, 60, 30);
-
-      let currentY = 44;
-
-      // TABLA 1: ACTIVIDADES
-      doc.setFontSize(10);
-      doc.setTextColor(15, 23, 42);
-      doc.setFont('helvetica', 'bold');
-      doc.text('1. ACTIVIDADES DIARIAS Y GESTIÓN EN CAMPO', 14, currentY);
-      currentY += 3;
-
-      const tableDataLogs = (dailyLogs || []).map((log) => [
-        formatDateDDMMYYYY(log.log_date),
-        log.rig_name || '',
-        log.activity_type || 'Tarea Planificada',
-        log.activities || '',
-        log.pending_notes || 'Sin pendientes'
-      ]);
-
-      autoTable(doc, {
-        startY: currentY,
-        head: [['Fecha', 'Equipo', 'Tipo de Actividad', 'Detalle / Hallazgos', 'Novedades Relevo']],
-        body: tableDataLogs.length > 0 ? tableDataLogs : [['-', '-', '-', 'Sin actividades registradas', '-']],
-        theme: 'grid',
-        headStyles: { fillColor: [101, 163, 13], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-        styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' },
-        columnStyles: {
-          0: { cellWidth: 22 },
-          1: { cellWidth: 28 },
-          2: { cellWidth: 34 },
-          3: { cellWidth: 64 },
-          4: { cellWidth: 42 }
-        }
-      });
-
-      currentY = (doc.lastAutoTable ? doc.lastAutoTable.finalY : currentY + 30) + 10;
-      if (currentY > 230) {
-        doc.addPage();
-        currentY = 20;
-      }
-
-      // TABLA 2: CONTINGENCIAS
-      doc.setFontSize(10);
-      doc.setTextColor(15, 23, 42);
-      doc.setFont('helvetica', 'bold');
-      doc.text('2. CONTINGENCIAS, INCIDENTES Y ACCIDENTES', 14, currentY);
-      currentY += 3;
-
-      const tableDataInc = (incidents || []).map((inc) => [
-        formatDateDDMMYYYY(inc.event_date),
-        inc.rig_name || '',
-        inc.event_type || '',
-        `${inc.description} ${inc.immediate_action ? `\n[Medida Inmediata: ${inc.immediate_action}]` : ''}`
-      ]);
-
-      autoTable(doc, {
-        startY: currentY,
-        head: [['Fecha', 'Equipo', 'Clasificación del Evento', 'Descripción y Medidas Adoptadas']],
-        body: tableDataInc.length > 0 ? tableDataInc : [['-', '-', 'Sin novedades', 'No se registraron contingencias ni incidentes en el turno']],
-        theme: 'grid',
-        headStyles: { fillColor: [217, 119, 6], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-        styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' },
-        columnStyles: {
-          0: { cellWidth: 22 },
-          1: { cellWidth: 30 },
-          2: { cellWidth: 46 },
-          3: { cellWidth: 92 }
-        }
-      });
-
-      currentY = (doc.lastAutoTable ? doc.lastAutoTable.finalY : currentY + 30) + 10;
-      if (currentY > 220) {
-        doc.addPage();
-        currentY = 20;
-      }
-
-      // SECCIÓN 3: MENSAJE LARGO Y CONSIGNAS PARA EL RELEVO (SI SE INGRESÓ)
-      if (pdfHandoffNotes.trim()) {
-        doc.setFontSize(10);
-        doc.setTextColor(15, 23, 42);
-        doc.setFont('helvetica', 'bold');
-        doc.text('3. CONSIGNAS GENERALES Y MENSAJE PARA LA GUARDIA ENTRANTE', 14, currentY);
-        currentY += 4;
-
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(51, 65, 85);
-
-        const splitNotes = doc.splitTextToSize(pdfHandoffNotes.trim(), 182);
-        const textHeight = splitNotes.length * 4.2 + 6;
-
-        if (currentY + textHeight > 260) {
-          doc.addPage();
-          currentY = 20;
-        }
-
-        doc.setFillColor(248, 250, 252);
-        doc.setDrawColor(203, 213, 225);
-        doc.roundedRect(14, currentY, 182, textHeight, 2, 2, 'FD');
-        doc.text(splitNotes, 18, currentY + 5);
-
-        currentY += textHeight + 8;
-      }
-
-      if (currentY > 230) {
-        doc.addPage();
-        currentY = 20;
-      }
-
-      // TABLA 4: ENTREGA DE BIENES (MARBAR S.A.)
-      const sectionNum = pdfHandoffNotes.trim() ? '4' : '3';
-      doc.setFontSize(10);
-      doc.setTextColor(15, 23, 42);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${sectionNum}. ACTA DE ENTREGA DE BIENES Y RECURSOS ENTREGADOS (MARBAR S.A.)`, 14, currentY);
-      currentY += 3;
-
-      const deliveredAssets = (assets || []).filter(a => a.is_delivered !== false);
-      const tableDataAssets = deliveredAssets.map((a) => [
-        a.asset_name,
-        a.condition_status,
-        a.notes || 'En condiciones normales'
-      ]);
-
-      autoTable(doc, {
-        startY: currentY,
-        head: [['Elemento / Recurso Entregado', 'Estado de Conservación', 'Observaciones / Kilometraje / Accesorios']],
-        body: tableDataAssets.length > 0 ? tableDataAssets : [['-', '-', 'Sin elementos entregados']],
-        theme: 'grid',
-        headStyles: { fillColor: [71, 85, 105], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-        styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' },
-        columnStyles: {
-          0: { cellWidth: 50 },
-          1: { cellWidth: 45 },
-          2: { cellWidth: 95 }
-        }
-      });
-
-      currentY = (doc.lastAutoTable ? doc.lastAutoTable.finalY : currentY + 30) + 20;
-      if (currentY > 250) {
-        doc.addPage();
-        currentY = 30;
-      }
-
-      // FIRMAS
-      doc.setFontSize(8.5);
-      doc.setTextColor(71, 85, 105);
-      doc.setFont('helvetica', 'normal');
-
-      doc.text('____________________________________', 25, currentY);
-      doc.text('Firma Inspector Saliente (Entrega)', 32, currentY + 5);
-      doc.text(`MARBAR S.A. - ${inspectorName}`, 32, currentY + 9);
-
-      doc.text('____________________________________', 125, currentY);
-      doc.text('Firma Inspector Entrante (Recepción)', 132, currentY + 5);
-      doc.text('MARBAR S.A. - Guardia Entrante', 135, currentY + 9);
-
-      doc.save(`Relevo_MARBAR_SA_${formatDateDDMMYYYY(shiftStart).replace(/\//g, '-')}_al_${formatDateDDMMYYYY(shiftEnd).replace(/\//g, '-')}.pdf`);
-      setShowPdfModal(false);
-    } catch (err) {
-      console.error(err);
-      alert('Error al generar PDF: ' + err.message);
-    } finally {
-      setPdfGenerating(false);
-    }
-  };
-
-  const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
-
-  // Modal Gestión y Cierre de Tarea
+  // MODAL GESTIÓN / CIERRE DE TAREA
   const openTaskEditModal = (task) => {
     setSelectedTaskForEdit(task);
     setEditScheduledDate(task.scheduled_date || new Date().toISOString().split('T')[0]);
@@ -1021,7 +804,7 @@ export default function App() {
     setIsSavingTaskModal(false);
   };
 
-  // Registro Asistencia por Turno
+  // REGISTRO DE ASISTENCIA POR TURNO
   const openShiftModal = (task) => {
     setShiftTask(task);
     setShiftName('Turno Mañana / Turno 1');
@@ -1062,7 +845,7 @@ export default function App() {
     setTasks(tasks.filter(t => t.id !== taskId));
   };
 
-  // Mover Equipo
+  // TRASLADO DE EQUIPO
   const handleOpenMoveModal = () => {
     setMoveRigId(selectedRig === 'ALL' ? rigs[0]?.id : selectedRig);
     setSelectedTplIds((templates || []).map(t => t.id));
@@ -1159,7 +942,7 @@ export default function App() {
     }
   };
 
-  // Campañas de Difusión
+  // CAMPAÑAS DE DIFUSIÓN
   const handleCreateBroadcastTask = async (e) => {
     e.preventDefault();
     if (!broadcastTitle.trim()) {
@@ -1326,7 +1109,7 @@ export default function App() {
     loadCampaigns();
   };
 
-  // Asignar tareas catálogo
+  // ASIGNAR TAREAS DEL CATÁLOGO
   const handleAssignTemplateToRigs = async (e) => {
     e.preventDefault();
     if (!assignTplModal || assignSelectedRigs.length === 0) {
@@ -1347,7 +1130,7 @@ export default function App() {
 
       const locMap = {};
       (activeLocs || []).forEach(loc => {
-        locMap[loc.rig_id] = loc.id;
+        locMap[loc.rig_id] = loc;
       });
 
       const offsetDays = parseInt(assignTplModal.days_offset, 10) || 0;
@@ -1404,7 +1187,7 @@ export default function App() {
     }
   };
 
-  // Histórico
+  // HISTÓRICO
   const loadPastLocations = async () => {
     try {
       const { data } = await supabase
@@ -1450,7 +1233,7 @@ export default function App() {
     loadAllLocations();
   };
 
-  // Admin Plantillas
+  // ADMIN PLANTILLAS
   const handleSaveTemplate = async (e) => {
     e.preventDefault();
     if (!tplTitle.trim()) return;
@@ -1504,99 +1287,6 @@ export default function App() {
     loadRigs();
     if (selectedRig === rigId) setSelectedRig('ALL');
   };
-
-  // Métricas de Actividades
-  const activeRigsCount = new Set((tasks || []).map(t => t.rig_locations?.rigs?.id || t.rigs?.id).filter(Boolean)).size || (rigs || []).length;
-
-  const getLogCount = (type) => (dailyLogs || []).filter(l => l && l.activity_type === type).length;
-  const dtmCount = new Set((dailyLogs || []).filter(l => l && l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
-
-  const uniqueWorkDaysInLogs = new Set((dailyLogs || []).map(l => l.log_date)).size;
-
-  const activityStats = {
-    dtm: dtmCount,
-    plan: getLogCount('Tarea Planificada'),
-    drill: getLogCount('Simulacro'),
-    meeting: getLogCount('Reunión'),
-    ecotour: getLogCount('EcoTour'),
-    base: getLogCount('Asistencia a Base Operativa'),
-    inspection: getLogCount('Inspección / Auditoría'),
-    induction: getLogCount('Inducción / Capacitación'),
-    visita: getLogCount('Visita general'),
-    difusion: getLogCount('Difusión Temática'),
-    otro: getLogCount('Otro')
-  };
-
-  // Filtrado y agrupación segura en Panel Admin
-  const filteredAdminLogs = (dailyLogs || []).filter((log) => {
-    if (!log) return false;
-    if (adminSelectedInspector !== 'ALL' && log.user_id !== adminSelectedInspector) return false;
-    if (adminDateFrom && log.log_date < adminDateFrom) return false;
-    if (adminDateTo && log.log_date > adminDateTo) return false;
-    return true;
-  });
-
-  const groupedDaysMap = {};
-  filteredAdminLogs.forEach((log) => {
-    const dayKey = `${log.log_date}_${log.user_id}`;
-    if (!groupedDaysMap[dayKey]) {
-      groupedDaysMap[dayKey] = {
-        date: log.log_date,
-        userId: log.user_id,
-        userName: log.user_name,
-        activitiesList: []
-      };
-    }
-    groupedDaysMap[dayKey].activitiesList.push(log);
-  });
-
-  const groupedDaysArray = Object.values(groupedDaysMap).sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  const uniqueDtmDays = new Set(
-    filteredAdminLogs
-      .filter(l => l.activity_type === 'Asistencia a DTM')
-      .map(l => `${l.log_date}_${l.user_id}`)
-  ).size;
-
-  const getAdminCount = (type) => filteredAdminLogs.filter(l => l.activity_type === type).length;
-
-  const adminStats = {
-    totalWorkDays: groupedDaysArray.length,
-    dtmDays: uniqueDtmDays,
-    plan: getAdminCount('Tarea Planificada'),
-    simulacro: getAdminCount('Simulacro'),
-    reunion: getAdminCount('Reunión'),
-    ecotour: getAdminCount('EcoTour'),
-    base: getAdminCount('Asistencia a Base Operativa'),
-    auditoria: getAdminCount('Inspección / Auditoría'),
-    capacitacion: getAdminCount('Inducción / Capacitación'),
-    visita: getAdminCount('Visita general'),
-    difusion: getAdminCount('Difusión Temática'),
-    otro: getAdminCount('Otro'),
-    totalActivities: filteredAdminLogs.length
-  };
-
-  const today = new Date().toISOString().split('T')[0];
-  const isOverdue = (scheduledDate, status) => status !== 'Completada' && scheduledDate < today;
-  const isDueToday = (scheduledDate, status) => status !== 'Completada' && scheduledDate === today;
-
-  const totalTasksCount = (tasks || []).length;
-  const completedTasksCount = (tasks || []).filter(t => t.status === 'Completada').length;
-  const pendingTasksCount = (tasks || []).filter(t => t.status !== 'Completada').length;
-  const overdueTasksCount = (tasks || []).filter(t => isOverdue(t.scheduled_date, t.status)).length;
-  const complianceRate = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
-
-  const filteredTasks = (tasks || []).filter(t => {
-    if (filterStatus === 'Pendientes') return t.status !== 'Completada';
-    if (filterStatus === 'Completadas') return t.status === 'Completada';
-    return true;
-  });
-
-  const sortedTasks = [...filteredTasks].sort((a, b) => {
-    if (a.status === 'Completada' && b.status !== 'Completada') return 1;
-    if (a.status !== 'Completada' && b.status === 'Completada') return -1;
-    return new Date(a.scheduled_date) - new Date(b.scheduled_date);
-  });
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 pb-20">
@@ -2641,7 +2331,7 @@ export default function App() {
                   <select
                     value={incFilterMonth}
                     onChange={(e) => setIncFilterMonth(e.target.value)}
-                    className="p-1.5 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
+                    className="p-1.5 border border-slate-300 rounded-md bg-white font-semibold text-slate-800"
                   >
                     {monthOptions.map((m) => (
                       <option key={m.value} value={m.value}>{m.label}</option>
@@ -3286,7 +2976,7 @@ export default function App() {
 
                 <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
                   <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Simulacros</span>
-                  <span className="text-xl font-black text-blue-950">{adminStats.simulacro}</span>
+                  <span className="text-xl font-black text-blue-900">{adminStats.simulacro}</span>
                   <span className="text-[9px] text-blue-700 block mt-0.5">ejecutados</span>
                 </div>
 
