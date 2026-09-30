@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabase';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -11,6 +11,18 @@ import {
 } from 'lucide-react';
 
 export default function App() {
+  // Función auxiliar para formatear fechas a DD/MM/YYYY
+  const formatDateDDMMYYYY = (dateStr) => {
+    if (!dateStr) return '-';
+    // Si viene en formato ISO o YYYY-MM-DD
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length === 3) {
+      const [year, month, day] = parts;
+      return `${day}/${month}/${year}`;
+    }
+    return dateStr;
+  };
+
   // Autenticación
   const [session, setSession] = useState(null);
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
@@ -65,6 +77,10 @@ export default function App() {
   const [incAction, setIncAction] = useState('');
   const [showIncModal, setShowIncModal] = useState(false);
   const [editingIncId, setEditingIncId] = useState(null);
+
+  // Filtros de Contingencias (Año y Mes)
+  const [incFilterYear, setIncFilterYear] = useState('ALL');
+  const [incFilterMonth, setIncFilterMonth] = useState('ALL');
 
   // Bienes / Recursos
   const [assets, setAssets] = useState([]);
@@ -161,6 +177,22 @@ export default function App() {
     'Accidente In Itinere',
     'Accidente personal',
     'Incidente de alto potencial'
+  ];
+
+  const monthOptions = [
+    { value: 'ALL', label: 'Todos los Meses' },
+    { value: '01', label: 'Enero' },
+    { value: '02', label: 'Febrero' },
+    { value: '03', label: 'Marzo' },
+    { value: '04', label: 'Abril' },
+    { value: '05', label: 'Mayo' },
+    { value: '06', label: 'Junio' },
+    { value: '07', label: 'Julio' },
+    { value: '08', label: 'Agosto' },
+    { value: '09', label: 'Septiembre' },
+    { value: '10', label: 'Octubre' },
+    { value: '11', label: 'Noviembre' },
+    { value: '12', label: 'Diciembre' }
   ];
 
   const stageOptions = [
@@ -274,7 +306,7 @@ export default function App() {
       const { data, error } = await supabase.from('broadcast_campaigns').select('*').order('created_at', { ascending: false });
       if (!error && data) setCampaigns(data);
     } catch {
-      // Ignorar si no existe la tabla
+      // Ignorar si no existe tabla
     }
   };
 
@@ -395,7 +427,7 @@ export default function App() {
     if (session) loadTasks();
   }, [selectedRig, session]);
 
-  // DÍAS SIN INCIDENTES
+  // CÁLCULO SEGURO DE DÍAS SIN INCIDENTES
   const calculateDaysWithoutIncidents = () => {
     if (selectedRig === 'ALL' || !selectedRig) return null;
 
@@ -412,7 +444,7 @@ export default function App() {
 
       if (rigIncidents.length > 0 && rigIncidents[0].event_date) {
         referenceDate = new Date(rigIncidents[0].event_date + 'T00:00:00');
-        referenceType = `Último evento (${rigIncidents[0].event_date})`;
+        referenceType = `Último evento (${formatDateDDMMYYYY(rigIncidents[0].event_date)})`;
       } else {
         const rigLocs = (allLocations || [])
           .filter(l => l && l.rig_id === selectedRig)
@@ -420,10 +452,10 @@ export default function App() {
 
         if (rigLocs.length > 0 && rigLocs[0].start_date) {
           referenceDate = new Date(rigLocs[0].start_date + 'T00:00:00');
-          referenceType = `Desde inicio de operaciones (${rigLocs[0].start_date})`;
+          referenceType = `Desde inicio de operaciones (${formatDateDDMMYYYY(rigLocs[0].start_date)})`;
         } else if (currentLocation?.start_date) {
           referenceDate = new Date(currentLocation.start_date + 'T00:00:00');
-          referenceType = `Spud-in actual (${currentLocation.start_date})`;
+          referenceType = `Spud-in actual (${formatDateDDMMYYYY(currentLocation.start_date)})`;
         }
       }
 
@@ -476,7 +508,51 @@ export default function App() {
 
   const currentRigVisitsStats = selectedRig !== 'ALL' ? getRigVisitsStats(selectedRig) : null;
 
-  // 3. DIARIO DE ACTIVIDADES
+  // Lógica y Filtros de la Solapa de Contingencias
+  const availableIncidentYears = useMemo(() => {
+    const yearsSet = new Set((incidents || []).map(inc => inc.event_date?.split('-')[0]).filter(Boolean));
+    return Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
+  }, [incidents]);
+
+  const filteredIncidents = useMemo(() => {
+    return (incidents || []).filter(inc => {
+      if (!inc.event_date) return false;
+      const [year, month] = inc.event_date.split('-');
+      if (incFilterYear !== 'ALL' && year !== incFilterYear) return false;
+      if (incFilterMonth !== 'ALL' && month !== incFilterMonth) return false;
+      return true;
+    });
+  }, [incidents, incFilterYear, incFilterMonth]);
+
+  // Contadores por Tipo de Evento
+  const incidentTypeStats = useMemo(() => {
+    const stats = {};
+    incidentTypes.forEach(t => { stats[t] = 0; });
+    filteredIncidents.forEach(inc => {
+      if (stats[inc.event_type] !== undefined) {
+        stats[inc.event_type]++;
+      } else {
+        stats[inc.event_type] = (stats[inc.event_type] || 0) + 1;
+      }
+    });
+    return stats;
+  }, [filteredIncidents]);
+
+  // Contadores de Eventos por Equipo
+  const incidentRigStats = useMemo(() => {
+    const stats = {};
+    (rigs || []).forEach(r => { stats[r.id] = { name: r.name, count: 0 }; });
+    filteredIncidents.forEach(inc => {
+      if (stats[inc.rig_id]) {
+        stats[inc.rig_id].count++;
+      } else {
+        stats[inc.rig_id] = { name: inc.rig_name || 'Equipo', count: 1 };
+      }
+    });
+    return Object.values(stats);
+  }, [filteredIncidents, rigs]);
+
+  // 3. DIARIO DE ACTIVIDADES (ABRE MODAL DESDE CUALQUIER PANTALLA)
   const openNewLogModal = (presetRigId = null) => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
@@ -549,7 +625,7 @@ export default function App() {
     if (!confirm('¿Deseas eliminar este registro de actividad?')) return;
     const { error } = await supabase.from('daily_logs').delete().eq('id', id);
     if (error) {
-      alert('Error al eliminar: ' + error.message);
+      alert('Error al eliminar: ' + error.message + '. Asegúrate de ejecutar el script de políticas de Administrador en Supabase.');
     } else {
       loadDailyLogs();
     }
@@ -671,7 +747,7 @@ export default function App() {
     loadAssets();
   };
 
-  // 6. GENERACIÓN DE PDF MARBAR S.A. (CON MENSAJE LARGO DE RELEVO)
+  // 6. GENERACIÓN DE PDF MARBAR S.A.
   const getBase64ImageFromUrl = (imageUrl) => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -729,9 +805,9 @@ export default function App() {
 
       doc.setFontSize(8.5);
       doc.setTextColor(203, 213, 225);
-      doc.text(`Razón Social: MARBAR S.A. | Emisión: ${new Date().toLocaleDateString('es-AR')}`, 60, 20);
+      doc.text(`Razón Social: MARBAR S.A. | Emisión: ${formatDateDDMMYYYY(new Date().toISOString().split('T')[0])}`, 60, 20);
       doc.text(`Inspector Saliente: ${inspectorName}`, 60, 25);
-      doc.text(`Período de Diagrama (14x14): Desde ${shiftStart} hasta ${shiftEnd}`, 60, 30);
+      doc.text(`Período de Diagrama (14x14): Desde ${formatDateDDMMYYYY(shiftStart)} hasta ${formatDateDDMMYYYY(shiftEnd)}`, 60, 30);
 
       let currentY = 44;
 
@@ -743,7 +819,7 @@ export default function App() {
       currentY += 3;
 
       const tableDataLogs = (dailyLogs || []).map((log) => [
-        log.log_date || '',
+        formatDateDDMMYYYY(log.log_date),
         log.rig_name || '',
         log.activity_type || 'Tarea Planificada',
         log.activities || '',
@@ -758,10 +834,10 @@ export default function App() {
         headStyles: { fillColor: [101, 163, 13], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
         styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' },
         columnStyles: {
-          0: { cellWidth: 20 },
+          0: { cellWidth: 22 },
           1: { cellWidth: 28 },
           2: { cellWidth: 34 },
-          3: { cellWidth: 66 },
+          3: { cellWidth: 64 },
           4: { cellWidth: 42 }
         }
       });
@@ -780,7 +856,7 @@ export default function App() {
       currentY += 3;
 
       const tableDataInc = (incidents || []).map((inc) => [
-        inc.event_date || '',
+        formatDateDDMMYYYY(inc.event_date),
         inc.rig_name || '',
         inc.event_type || '',
         `${inc.description} ${inc.immediate_action ? `\n[Medida Inmediata: ${inc.immediate_action}]` : ''}`
@@ -827,7 +903,6 @@ export default function App() {
           currentY = 20;
         }
 
-        // Caja de fondo para destacar el mensaje
         doc.setFillColor(248, 250, 252);
         doc.setDrawColor(203, 213, 225);
         doc.roundedRect(14, currentY, 182, textHeight, 2, 2, 'FD');
@@ -889,7 +964,7 @@ export default function App() {
       doc.text('Firma Inspector Entrante (Recepción)', 132, currentY + 5);
       doc.text('MARBAR S.A. - Guardia Entrante', 135, currentY + 9);
 
-      doc.save(`Relevo_MARBAR_SA_${shiftStart}_al_${shiftEnd}.pdf`);
+      doc.save(`Relevo_MARBAR_SA_${formatDateDDMMYYYY(shiftStart).replace(/\//g, '-')}_al_${formatDateDDMMYYYY(shiftEnd).replace(/\//g, '-')}.pdf`);
       setShowPdfModal(false);
     } catch (err) {
       console.error(err);
@@ -1272,7 +1347,7 @@ export default function App() {
 
       const locMap = {};
       (activeLocs || []).forEach(loc => {
-        locMap[loc.rig_id] = loc;
+        locMap[loc.rig_id] = loc.id;
       });
 
       const offsetDays = parseInt(assignTplModal.days_offset, 10) || 0;
@@ -1436,7 +1511,6 @@ export default function App() {
   const getLogCount = (type) => (dailyLogs || []).filter(l => l && l.activity_type === type).length;
   const dtmCount = new Set((dailyLogs || []).filter(l => l && l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
 
-  // Días únicos reales trabajados en el turno
   const uniqueWorkDaysInLogs = new Set((dailyLogs || []).map(l => l.log_date)).size;
 
   const activityStats = {
@@ -1453,6 +1527,7 @@ export default function App() {
     otro: getLogCount('Otro')
   };
 
+  // Filtrado y agrupación segura en Panel Admin
   const filteredAdminLogs = (dailyLogs || []).filter((log) => {
     if (!log) return false;
     if (adminSelectedInspector !== 'ALL' && log.user_id !== adminSelectedInspector) return false;
@@ -1522,79 +1597,6 @@ export default function App() {
     if (a.status !== 'Completada' && b.status === 'Completada') return -1;
     return new Date(a.scheduled_date) - new Date(b.scheduled_date);
   });
-
-  if (!session) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl space-y-6">
-          <div className="text-center space-y-2">
-            <div className="inline-flex p-3 bg-amber-100 rounded-full text-amber-600 mb-1">
-              <ShieldCheck className="w-10 h-10" />
-            </div>
-            <h1 className="text-xl font-bold text-slate-900">MARBAR S.A.</h1>
-            <p className="text-xs text-slate-500">Control HSE y Operaciones en Perforación</p>
-          </div>
-
-          <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
-            {isRegistering && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre Completo:</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Juan Pérez"
-                  value={authFullName}
-                  onChange={(e) => setAuthFullName(e.target.value)}
-                  required
-                  className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Correo Electrónico:</label>
-              <input
-                type="email"
-                placeholder="usuario@marbar.com.ar"
-                value={authEmail}
-                onChange={(e) => setAuthEmail(e.target.value)}
-                required
-                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña:</label>
-              <input
-                type="password"
-                placeholder="••••••••"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                required
-                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={authLoading}
-              className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg text-sm transition disabled:opacity-50"
-            >
-              {authLoading ? 'Verificando...' : isRegistering ? 'Crear Cuenta' : 'Iniciar Sesión'}
-            </button>
-          </form>
-
-          <div className="text-center pt-2 border-t border-slate-100">
-            <button
-              onClick={() => setIsRegistering(!isRegistering)}
-              className="text-xs text-slate-600 hover:text-amber-600 font-semibold"
-            >
-              {isRegistering ? '¿Ya tienes cuenta? Inicia sesión' : '¿Nuevo usuario? Regístrate aquí'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 pb-20">
@@ -1765,7 +1767,7 @@ export default function App() {
                         <strong className="text-slate-800 text-sm block mt-0.5">{currentLocation.location_name}</strong>
                       </div>
                       <span className="text-slate-500 font-medium text-[11px] mt-2 block">
-                        📅 Spud-in: {currentLocation.start_date}
+                        📅 Spud-in: {formatDateDDMMYYYY(currentLocation.start_date)}
                       </span>
                     </div>
                   ) : (
@@ -1786,7 +1788,6 @@ export default function App() {
                             {currentRigVisitsStats.totalVisits} {currentRigVisitsStats.totalVisits === 1 ? 'visita' : 'visitas'}
                           </span>
                         </div>
-                        {/* Botón +Visitar funcional */}
                         <button
                           type="button"
                           onClick={() => openNewLogModal(selectedRig)}
@@ -1800,7 +1801,7 @@ export default function App() {
                         {currentRigVisitsStats.lastVisitDate ? (
                           <div className="flex justify-between items-center">
                             <span>
-                              Última: <strong>{currentRigVisitsStats.lastVisitDate}</strong>
+                              Última: <strong>{formatDateDDMMYYYY(currentRigVisitsStats.lastVisitDate)}</strong>
                             </span>
                             <span className={`px-1.5 py-0.2 rounded font-bold text-[10px] ${
                               currentRigVisitsStats.daysAgo === 0 ? 'bg-emerald-100 text-emerald-800' :
@@ -2295,7 +2296,7 @@ export default function App() {
                                   {shiftsList.map((s, sIdx) => (
                                     <div key={sIdx} className="bg-white p-2 rounded border border-purple-100 text-[11px]">
                                       <div className="flex justify-between font-semibold text-slate-800">
-                                        <span>👥 {s.shift_name} ({s.date})</span>
+                                        <span>👥 {s.shift_name} ({formatDateDDMMYYYY(s.date)})</span>
                                         <span className="text-slate-500 text-[10px]">Por: {s.trainer_name}</span>
                                       </div>
                                       <p className="text-slate-600 mt-0.5"><strong className="text-slate-700">Participantes:</strong> {s.participants}</p>
@@ -2319,7 +2320,7 @@ export default function App() {
                               onClick={() => openTaskEditModal(task)}
                               className="flex items-center gap-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
                             >
-                              <Edit2 className="w-3 h-3" />
+                              <Edit2 className="w-3.5 h-3.5" />
                               Gestionar / Cerrar
                             </button>
                           )}
@@ -2339,7 +2340,7 @@ export default function App() {
                           'text-slate-600'
                         }`}>
                           <Calendar className="w-3.5 h-3.5" />
-                          Prog: {task.scheduled_date} 
+                          Prog: {formatDateDDMMYYYY(task.scheduled_date)} 
                           {overdue && ' ⚠️ VENCIDA'}
                           {dueToday && ' ⏳ VENCE HOY'}
                         </span>
@@ -2348,11 +2349,11 @@ export default function App() {
                           <div className="flex flex-col sm:flex-row sm:items-center gap-1 text-emerald-700 font-semibold bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
                             <span className="flex items-center gap-1">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              Cerrada por: <strong>{task.completed_by_name || 'Inspector'}</strong> el {task.closed_work_date || task.completed_date}
+                              Cerrada por: <strong>{task.completed_by_name || 'Inspector'}</strong> el {formatDateDDMMYYYY(task.closed_work_date || task.completed_date)}
                             </span>
                             {task.closed_system_date && (
                               <span className="text-[10px] text-slate-400 font-normal">
-                                (Cargado en app: {new Date(task.closed_system_date).toLocaleDateString('es-AR')})
+                                (Cargado en app: {formatDateDDMMYYYY(task.closed_system_date)})
                               </span>
                             )}
                           </div>
@@ -2458,7 +2459,7 @@ export default function App() {
                         </span>
                         {stats.lastVisitDate ? (
                           <span className="text-[10px] text-slate-400 block">
-                            Última: {stats.lastVisitDate} ({stats.lastInspector})
+                            Última: {formatDateDDMMYYYY(stats.lastVisitDate)} ({stats.lastInspector})
                           </span>
                         ) : (
                           <span className="text-[10px] text-red-500 italic block">Sin visitas aún</span>
@@ -2550,7 +2551,7 @@ export default function App() {
                     <div className="flex justify-between items-start">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
-                          📅 {log.log_date}
+                          📅 {formatDateDDMMYYYY(log.log_date)}
                         </span>
                         <span className="text-xs bg-slate-900 text-white font-bold px-2 py-0.5 rounded">
                           🚜 {log.rig_name}
@@ -2590,29 +2591,136 @@ export default function App() {
           </div>
         )}
 
-        {/* CONTINGENCIAS */}
+        {/* CONTINGENCIAS CON CONTADORES, FILTROS Y MÉTRICAS POR RIG */}
         {activeTab === 'contingencias' && (
           <div className="space-y-4">
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                  <AlertOctagon className="w-4 h-4 text-red-600" />
-                  Registro de Contingencias, Incidentes y Accidentes
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Tipificación oficial de contingencias para informe PDF y cómputo de días sin incidentes.
-                </p>
+            {/* 1. SECCIÓN DE FILTROS POR AÑO Y MES */}
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                    <AlertOctagon className="w-4 h-4 text-red-600" />
+                    Registro de Contingencias, Incidentes y Accidentes
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Filtra y analiza los eventos ambientales, vehiculares y personales registrados en campo.
+                  </p>
+                </div>
+
+                <button
+                  onClick={openNewIncModal}
+                  className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3.5 rounded-lg transition shadow-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  + Reportar Evento / Contingencia
+                </button>
               </div>
 
-              <button
-                onClick={openNewIncModal}
-                className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3.5 rounded-lg transition shadow-sm"
-              >
-                <Plus className="w-4 h-4" />
-                + Reportar Evento / Contingencia
-              </button>
+              {/* BARRA DE FILTROS DE FECHA */}
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-wrap items-center gap-3 text-xs">
+                <span className="font-bold text-slate-700 flex items-center gap-1">
+                  <Filter className="w-3.5 h-3.5 text-red-600" /> Filtrar por Período:
+                </span>
+
+                <div className="flex items-center gap-1.5">
+                  <label className="text-slate-500 font-semibold">Año:</label>
+                  <select
+                    value={incFilterYear}
+                    onChange={(e) => setIncFilterYear(e.target.value)}
+                    className="p-1.5 border border-slate-300 rounded-md bg-white font-semibold text-slate-800"
+                  >
+                    <option value="ALL">Todos los Años</option>
+                    {availableIncidentYears.map((yr) => (
+                      <option key={yr} value={yr}>{yr}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <label className="text-slate-500 font-semibold">Mes:</label>
+                  <select
+                    value={incFilterMonth}
+                    onChange={(e) => setIncFilterMonth(e.target.value)}
+                    className="p-1.5 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
+                  >
+                    {monthOptions.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {(incFilterYear !== 'ALL' || incFilterMonth !== 'ALL') && (
+                  <button
+                    onClick={() => { setIncFilterYear('ALL'); setIncFilterMonth('ALL'); }}
+                    className="text-[11px] text-red-600 hover:underline font-semibold ml-auto"
+                  >
+                    Restablecer Filtros
+                  </button>
+                )}
+              </div>
             </div>
 
+            {/* 2. TARJETAS INFORMATIVAS: TOTALES Y POR TIPO DE EVENTO */}
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+              <div className="bg-slate-900 text-white p-3 rounded-xl shadow-sm col-span-2 sm:col-span-1">
+                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block">Total Eventos</span>
+                <span className="text-2xl font-black">{filteredIncidents.length}</span>
+                <span className="text-[10px] text-slate-400 block">registrados</span>
+              </div>
+              <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block truncate">Ambiental</span>
+                <span className="text-xl font-black text-emerald-950">{incidentTypeStats['Incidente ambiental (derrame)'] || 0}</span>
+                <span className="text-[9px] text-emerald-700 block">derrames</span>
+              </div>
+              <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
+                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block truncate">Vehicular</span>
+                <span className="text-xl font-black text-blue-950">{incidentTypeStats['Accidente vehicular'] || 0}</span>
+                <span className="text-[9px] text-blue-700 block">camionetas/móviles</span>
+              </div>
+              <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
+                <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block truncate">In Itinere</span>
+                <span className="text-xl font-black text-indigo-950">{incidentTypeStats['Accidente In Itinere'] || 0}</span>
+                <span className="text-[9px] text-indigo-700 block">trayectos</span>
+              </div>
+              <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+                <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block truncate">Personal</span>
+                <span className="text-xl font-black text-amber-950">{incidentTypeStats['Accidente personal'] || 0}</span>
+                <span className="text-[9px] text-amber-700 block">lesiones</span>
+              </div>
+              <div className="bg-red-50 p-2.5 rounded-xl border border-red-200">
+                <span className="text-[10px] font-bold text-red-800 uppercase tracking-wider block truncate">Alto Potencial</span>
+                <span className="text-xl font-black text-red-950">{incidentTypeStats['Incidente de alto potencial'] || 0}</span>
+                <span className="text-[9px] text-red-700 block">cuasi accidentes</span>
+              </div>
+            </div>
+
+            {/* 3. CANTIDAD DE EVENTOS POR EQUIPO */}
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <Truck className="w-4 h-4 text-amber-600" />
+                Eventos por Equipo ({incFilterYear !== 'ALL' ? `Año ${incFilterYear}` : 'Histórico Completo'})
+              </h3>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                {incidentRigStats.map((item, idx) => (
+                  <div key={idx} className={`p-2.5 rounded-lg border text-xs flex justify-between items-center ${
+                    item.count === 0 ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-red-50/70 border-red-200'
+                  }`}>
+                    <div>
+                      <span className="font-bold text-slate-800 block truncate max-w-[90px]">🚜 {item.name}</span>
+                      <span className="text-[10px] text-slate-400 block">{item.count} {item.count === 1 ? 'evento' : 'eventos'}</span>
+                    </div>
+                    <span className={`text-sm font-black px-2 py-0.5 rounded ${
+                      item.count === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                    }`}>
+                      {item.count}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* MODAL CREAR / EDITAR INCIDENTE */}
             {showIncModal && (
               <form onSubmit={handleSaveIncident} className="bg-white p-5 rounded-xl shadow-lg border-2 border-red-500 space-y-3">
                 <div className="flex justify-between items-center">
@@ -2697,13 +2805,14 @@ export default function App() {
               </form>
             )}
 
+            {/* LISTADO DE CONTINGENCIAS FILTRADAS */}
             <div className="space-y-3">
-              {(incidents || []).length === 0 ? (
+              {filteredIncidents.length === 0 ? (
                 <div className="bg-white p-8 rounded-xl text-center text-slate-400 text-sm border border-dashed border-slate-300">
-                  No hay contingencias ni incidentes registrados en este período.
+                  No hay contingencias ni incidentes registrados para los filtros seleccionados.
                 </div>
               ) : (
-                incidents.map((inc) => (
+                filteredIncidents.map((inc) => (
                   <div key={inc.id} className="bg-white p-4 rounded-xl shadow-sm border border-red-200 space-y-2">
                     <div className="flex justify-between items-start">
                       <div className="flex flex-wrap items-center gap-2">
@@ -2713,7 +2822,7 @@ export default function App() {
                         <span className="text-xs bg-slate-100 text-slate-800 font-bold px-2 py-0.5 rounded">
                           🚜 {inc.rig_name}
                         </span>
-                        <span className="text-xs text-slate-500">📅 {inc.event_date}</span>
+                        <span className="text-xs text-slate-500">📅 {formatDateDDMMYYYY(inc.event_date)}</span>
                       </div>
                       {(inc.user_id === session.user.id || isAdmin) && (
                         <div className="flex items-center gap-1">
@@ -2903,7 +3012,7 @@ export default function App() {
                   >
                     {pastLocations.map((loc) => (
                       <option key={loc.id} value={loc.id}>
-                        🚜 {loc.rigs?.name} — 📍 {loc.location_name} ({loc.start_date} a {loc.end_date || 'Cierre'})
+                        🚜 {loc.rigs?.name} — 📍 {loc.location_name} ({formatDateDDMMYYYY(loc.start_date)} a {formatDateDDMMYYYY(loc.end_date) || 'Cierre'})
                       </option>
                     ))}
                   </select>
@@ -2915,8 +3024,8 @@ export default function App() {
                         <div>
                           <p className="font-semibold text-slate-800">{t.title}</p>
                           <p className="text-slate-400">
-                            Prog: {t.scheduled_date} 
-                            {(t.closed_work_date || t.completed_date) && ` | Cerrada: ${t.closed_work_date || t.completed_date}`}
+                            Prog: {formatDateDDMMYYYY(t.scheduled_date)} 
+                            {(t.closed_work_date || t.completed_date) && ` | Cerrada: ${formatDateDDMMYYYY(t.closed_work_date || t.completed_date)}`}
                             {t.completed_by_name && ` | Por: ${t.completed_by_name}`}
                           </p>
                           {t.comments && (
@@ -3066,7 +3175,7 @@ export default function App() {
                           <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{camp.description}</p>
                         )}
                         <span className="text-[10px] text-purple-700 font-semibold bg-purple-50 px-2 py-0.5 rounded border border-purple-200 inline-block mt-1">
-                          📅 Fecha Límite: {camp.target_date}
+                          📅 Fecha Límite: {formatDateDDMMYYYY(camp.target_date)}
                         </span>
                       </div>
 
@@ -3177,7 +3286,7 @@ export default function App() {
 
                 <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
                   <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Simulacros</span>
-                  <span className="text-xl font-black text-blue-900">{adminStats.simulacro}</span>
+                  <span className="text-xl font-black text-blue-950">{adminStats.simulacro}</span>
                   <span className="text-[9px] text-blue-700 block mt-0.5">ejecutados</span>
                 </div>
 
@@ -3246,7 +3355,7 @@ export default function App() {
                         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
                           <div className="flex items-center gap-2">
                             <span className="text-xs bg-slate-900 text-white font-bold px-2.5 py-1 rounded-md">
-                              📅 {day.date}
+                              📅 {formatDateDDMMYYYY(day.date)}
                             </span>
                             <span className="text-xs font-bold text-slate-800">
                               👤 {day.userName}
