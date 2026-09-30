@@ -11,15 +11,14 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // Función auxiliar ultra segura para formatear a DD/MM/YYYY
+  // Función auxiliar blindada para formato DD/MM/YYYY
   const formatDateDDMMYYYY = (dateStr) => {
     if (!dateStr || typeof dateStr !== 'string') return '-';
     try {
-      const cleanDate = dateStr.split('T')[0];
-      const parts = cleanDate.split('-');
-      if (parts.length === 3) {
-        const [year, month, day] = parts;
-        return `${day}/${month}/${year}`;
+      const clean = dateStr.split('T')[0];
+      const p = clean.split('-');
+      if (p.length === 3 && p[0].length === 4) {
+        return `${p[2]}/${p[1]}/${p[0]}`;
       }
       return dateStr;
     } catch {
@@ -55,16 +54,16 @@ export default function App() {
     d.setDate(d.getDate() - 13);
     return d.toISOString().split('T')[0];
   });
-  const [shiftEnd, setShiftEnd] = useState(new Date().toISOString().split('T')[0]);
+  const [shiftEnd, setShiftEnd] = useState(() => new Date().toISOString().split('T')[0]);
 
-  // Modal para Descargar PDF con Mensaje / Comentario Largo de Relevo
+  // Modal Descarga PDF con Comentarios Largos
   const [showPdfModal, setShowPdfModal] = useState(false);
   const [pdfHandoffNotes, setPdfHandoffNotes] = useState('');
   const [pdfGenerating, setPdfGenerating] = useState(false);
 
   // Diario de Actividades
   const [dailyLogs, setDailyLogs] = useState([]);
-  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
+  const [logDate, setLogDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [logRigId, setLogRigId] = useState('');
   const [logActivityType, setLogActivityType] = useState('Tarea Planificada');
   const [logActivities, setLogActivities] = useState('');
@@ -74,7 +73,7 @@ export default function App() {
 
   // Eventos y Contingencias
   const [incidents, setIncidents] = useState([]);
-  const [incDate, setIncDate] = useState(new Date().toISOString().split('T')[0]);
+  const [incDate, setIncDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [incRigId, setIncRigId] = useState('');
   const [incType, setIncType] = useState('Incidente ambiental (derrame)');
   const [incDesc, setIncDesc] = useState('');
@@ -82,7 +81,7 @@ export default function App() {
   const [showIncModal, setShowIncModal] = useState(false);
   const [editingIncId, setEditingIncId] = useState(null);
 
-  // Filtros de Contingencias (Año y Mes)
+  // Filtros de Contingencias
   const [incFilterYear, setIncFilterYear] = useState('ALL');
   const [incFilterMonth, setIncFilterMonth] = useState('ALL');
 
@@ -103,49 +102,49 @@ export default function App() {
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [moveRigId, setMoveRigId] = useState('');
   const [newLocName, setNewLocName] = useState('');
-  const [newLocDate, setNewLocDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newLocDate, setNewLocDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [selectedTplIds, setSelectedTplIds] = useState([]);
 
   // Modal Tarea Eventual / Difusión
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDesc, setTaskDesc] = useState('');
-  const [taskDate, setTaskDate] = useState(new Date().toISOString().split('T')[0]);
+  const [taskDate, setTaskDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [taskIsPersistent, setTaskIsPersistent] = useState(false);
 
-  // Modal de Gestión/Cierre de Tareas
+  // Modal Gestión/Cierre de Tareas
   const [selectedTaskForEdit, setSelectedTaskForEdit] = useState(null);
   const [editScheduledDate, setEditScheduledDate] = useState('');
   const [editStatus, setEditStatus] = useState('En Progreso');
   const [editComments, setEditComments] = useState('');
-  const [editClosedDate, setEditClosedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [editClosedDate, setEditClosedDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [editClosedByName, setEditClosedByName] = useState('');
   const [isSavingTaskModal, setIsSavingTaskModal] = useState(false);
 
-  // Modal Registro de Turno en Difusión
+  // Modal Turno Difusión
   const [shiftTask, setShiftTask] = useState(null);
   const [shiftName, setShiftName] = useState('Turno Mañana / Turno 1');
   const [shiftParticipants, setShiftParticipants] = useState('');
-  const [shiftDate, setShiftDate] = useState(new Date().toISOString().split('T')[0]);
+  const [shiftDate, setShiftDate] = useState(() => new Date().toISOString().split('T')[0]);
 
   // Campañas de Difusión
   const [campaigns, setCampaigns] = useState([]);
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastDesc, setBroadcastDesc] = useState('');
-  const [broadcastDate, setBroadcastDate] = useState(new Date().toISOString().split('T')[0]);
+  const [broadcastDate, setBroadcastDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [broadcastSelectedRigs, setBroadcastSelectedRigs] = useState([]);
   const [broadcastLoading, setBroadcastLoading] = useState(false);
 
-  // Modal reasignar campaña
+  // Reasignar campaña
   const [reassignCampaignModal, setReassignCampaignModal] = useState(null);
   const [reassignSelectedRigs, setReassignSelectedRigs] = useState([]);
-  const [reassignDate, setReassignDate] = useState(new Date().toISOString().split('T')[0]);
+  const [reassignDate, setReassignDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [reassignLoading, setReassignLoading] = useState(false);
 
-  // Modal Asignar Tarea del Catálogo
+  // Asignar Tarea Catálogo
   const [assignTplModal, setAssignTplModal] = useState(null);
   const [assignSelectedRigs, setAssignSelectedRigs] = useState([]);
-  const [assignDate, setAssignDate] = useState(new Date().toISOString().split('T')[0]);
+  const [assignDate, setAssignDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [assignLoading, setAssignLoading] = useState(false);
 
   // Admin Plantillas y Equipos
@@ -156,7 +155,7 @@ export default function App() {
   const [tplDays, setTplDays] = useState(0);
   const [newRigName, setNewRigName] = useState('');
 
-  // Estados de Auditoría (Admin)
+  // Estados de Auditoría
   const [adminSelectedInspector, setAdminSelectedInspector] = useState('ALL');
   const [adminDateFrom, setAdminDateFrom] = useState('');
   const [adminDateTo, setAdminDateTo] = useState('');
@@ -232,7 +231,7 @@ export default function App() {
 
   const loadUserProfile = async (userId) => {
     try {
-      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+      const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
       if (data) setCurrentUserProfile(data);
     } catch (err) {
       console.error(err);
@@ -310,7 +309,7 @@ export default function App() {
       const { data, error } = await supabase.from('broadcast_campaigns').select('*').order('created_at', { ascending: false });
       if (!error && data) setCampaigns(data);
     } catch {
-      // Ignorar
+      // Ignorar si no existe tabla
     }
   };
 
@@ -440,7 +439,7 @@ export default function App() {
       todayDate.setHours(0, 0, 0, 0);
 
       const rigIncidents = (incidents || [])
-        .filter(inc => inc && inc.rig_id === selectedRig)
+        .filter(inc => inc && inc.rig_id === selectedRig && inc.event_date)
         .sort((a, b) => new Date(b.event_date) - new Date(a.event_date));
 
       let referenceDate = null;
@@ -451,7 +450,7 @@ export default function App() {
         referenceType = `Último evento (${formatDateDDMMYYYY(rigIncidents[0].event_date)})`;
       } else {
         const rigLocs = (allLocations || [])
-          .filter(l => l && l.rig_id === selectedRig)
+          .filter(l => l && l.rig_id === selectedRig && l.start_date)
           .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
 
         if (rigLocs.length > 0 && rigLocs[0].start_date) {
@@ -490,13 +489,13 @@ export default function App() {
       return { totalVisits: 0, lastVisitDate: null, daysAgo: null, lastInspector: null };
     }
 
-    const sorted = [...rigLogs].sort((a, b) => new Date(b.log_date) - new Date(a.log_date));
+    const sorted = [...rigLogs].sort((a, b) => new Date(b.log_date || '1970-01-01') - new Date(a.log_date || '1970-01-01'));
     const lastLog = sorted[0];
 
     try {
       const todayDate = new Date();
       todayDate.setHours(0, 0, 0, 0);
-      const lastDate = new Date(lastLog.log_date + 'T00:00:00');
+      const lastDate = new Date((lastLog.log_date || '') + 'T00:00:00');
       const diffDays = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
 
       return {
@@ -512,10 +511,15 @@ export default function App() {
 
   const currentRigVisitsStats = selectedRig !== 'ALL' ? getRigVisitsStats(selectedRig) : null;
 
-  // Lógica de Filtros en Contingencias (Ultra seguro)
+  // Lógica de Filtros en Contingencias
   const availableIncidentYears = useMemo(() => {
     try {
-      const yearsSet = new Set((incidents || []).map(inc => inc?.event_date ? inc.event_date.split('-')[0] : null).filter(Boolean));
+      const yearsSet = new Set();
+      (incidents || []).forEach(inc => {
+        if (inc && typeof inc.event_date === 'string' && inc.event_date.includes('-')) {
+          yearsSet.add(inc.event_date.split('-')[0]);
+        }
+      });
       return Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
     } catch {
       return [];
@@ -525,7 +529,7 @@ export default function App() {
   const filteredIncidents = useMemo(() => {
     try {
       return (incidents || []).filter(inc => {
-        if (!inc || !inc.event_date) return false;
+        if (!inc || typeof inc.event_date !== 'string') return false;
         const parts = inc.event_date.split('-');
         if (parts.length < 2) return false;
         const [year, month] = parts;
@@ -551,12 +555,14 @@ export default function App() {
 
   const incidentRigStats = useMemo(() => {
     const stats = {};
-    (rigs || []).forEach(r => { stats[r.id] = { name: r.name, count: 0 }; });
+    (rigs || []).forEach(r => { 
+      if (r && r.id) stats[r.id] = { name: r.name, count: 0 }; 
+    });
     (filteredIncidents || []).forEach(inc => {
-      if (inc) {
+      if (inc && inc.rig_id) {
         if (stats[inc.rig_id]) {
           stats[inc.rig_id].count++;
-        } else if (inc.rig_id) {
+        } else {
           stats[inc.rig_id] = { name: inc.rig_name || 'Equipo', count: 1 };
         }
       }
@@ -578,10 +584,10 @@ export default function App() {
 
   const openEditLogModal = (log) => {
     setEditingLogId(log.id);
-    setLogDate(log.log_date);
-    setLogRigId(log.rig_id);
-    setLogActivityType(log.activity_type);
-    setLogActivities(log.activities);
+    setLogDate(log.log_date || new Date().toISOString().split('T')[0]);
+    setLogRigId(log.rig_id || '');
+    setLogActivityType(log.activity_type || 'Tarea Planificada');
+    setLogActivities(log.activities || '');
     setLogPending(log.pending_notes || '');
     setShowLogModal(true);
   };
@@ -593,9 +599,9 @@ export default function App() {
       return;
     }
 
-    const chosenRig = rigs.find(r => r.id === logRigId);
+    const chosenRig = (rigs || []).find(r => r.id === logRigId);
     const rigName = chosenRig ? chosenRig.name : 'Equipo de Campo';
-    const inspectorName = currentUserProfile?.full_name || session.user.email;
+    const inspectorName = currentUserProfile?.full_name || session?.user?.email;
 
     if (editingLogId) {
       const { error } = await supabase.from('daily_logs').update({
@@ -656,10 +662,10 @@ export default function App() {
 
   const openEditIncModal = (inc) => {
     setEditingIncId(inc.id);
-    setIncDate(inc.event_date);
-    setIncRigId(inc.rig_id);
-    setIncType(inc.event_type);
-    setIncDesc(inc.description);
+    setIncDate(inc.event_date || new Date().toISOString().split('T')[0]);
+    setIncRigId(inc.rig_id || '');
+    setIncType(inc.event_type || 'Incidente ambiental (derrame)');
+    setIncDesc(inc.description || '');
     setIncAction(inc.immediate_action || '');
     setShowIncModal(true);
   };
@@ -668,7 +674,7 @@ export default function App() {
     e.preventDefault();
     if (!incDesc.trim() || !incRigId) return;
 
-    const chosenRig = rigs.find(r => r.id === incRigId);
+    const chosenRig = (rigs || []).find(r => r.id === incRigId);
     const rigName = chosenRig ? chosenRig.name : 'Equipo de Campo';
 
     if (editingIncId) {
@@ -786,7 +792,7 @@ export default function App() {
       closed_system_date: isDone ? (selectedTaskForEdit.closed_system_date || nowIso) : null,
       completed_by: isDone ? (selectedTaskForEdit.completed_by || session.user.id) : null,
       completed_by_name: isDone 
-        ? (isAdmin && editClosedByName.trim() ? editClosedByName.trim() : (currentUserProfile?.full_name || session.user.email)) 
+        ? (isAdmin && editClosedByName.trim() ? editClosedByName.trim() : (currentUserProfile?.full_name || session?.user?.email)) 
         : null
     };
 
@@ -821,7 +827,7 @@ export default function App() {
       id: Date.now().toString(),
       shift_name: shiftName,
       date: shiftDate,
-      trainer_name: currentUserProfile?.full_name || session.user.email,
+      trainer_name: currentUserProfile?.full_name || session?.user?.email,
       participants: shiftParticipants.trim()
     };
 
@@ -1288,6 +1294,403 @@ export default function App() {
     if (selectedRig === rigId) setSelectedRig('ALL');
   };
 
+  // Métricas de Actividades
+  const activeRigsCount = new Set((tasks || []).map(t => t.rig_locations?.rigs?.id || t.rigs?.id).filter(Boolean)).size || (rigs || []).length;
+
+  const getLogCount = (type) => (dailyLogs || []).filter(l => l && l.activity_type === type).length;
+  const dtmCount = new Set((dailyLogs || []).filter(l => l && l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
+
+  const uniqueWorkDaysInLogs = new Set((dailyLogs || []).map(l => l.log_date).filter(Boolean)).size;
+
+  const activityStats = {
+    dtm: dtmCount,
+    plan: getLogCount('Tarea Planificada'),
+    drill: getLogCount('Simulacro'),
+    meeting: getLogCount('Reunión'),
+    ecotour: getLogCount('EcoTour'),
+    base: getLogCount('Asistencia a Base Operativa'),
+    inspection: getLogCount('Inspección / Auditoría'),
+    induction: getLogCount('Inducción / Capacitación'),
+    visita: getLogCount('Visita general'),
+    difusion: getLogCount('Difusión Temática'),
+    otro: getLogCount('Otro')
+  };
+
+  // Filtrado y agrupación segura en Panel Admin
+  const filteredAdminLogs = (dailyLogs || []).filter((log) => {
+    if (!log) return false;
+    if (adminSelectedInspector !== 'ALL' && log.user_id !== adminSelectedInspector) return false;
+    if (adminDateFrom && log.log_date < adminDateFrom) return false;
+    if (adminDateTo && log.log_date > adminDateTo) return false;
+    return true;
+  });
+
+  const groupedDaysMap = {};
+  filteredAdminLogs.forEach((log) => {
+    const dayKey = `${log.log_date}_${log.user_id}`;
+    if (!groupedDaysMap[dayKey]) {
+      groupedDaysMap[dayKey] = {
+        date: log.log_date,
+        userId: log.user_id,
+        userName: log.user_name,
+        activitiesList: []
+      };
+    }
+    groupedDaysMap[dayKey].activitiesList.push(log);
+  });
+
+  const groupedDaysArray = Object.values(groupedDaysMap).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const uniqueDtmDays = new Set(
+    filteredAdminLogs
+      .filter(l => l.activity_type === 'Asistencia a DTM')
+      .map(l => `${l.log_date}_${l.user_id}`)
+  ).size;
+
+  const getAdminCount = (type) => filteredAdminLogs.filter(l => l.activity_type === type).length;
+
+  const adminStats = {
+    totalWorkDays: groupedDaysArray.length,
+    dtmDays: uniqueDtmDays,
+    plan: getAdminCount('Tarea Planificada'),
+    simulacro: getAdminCount('Simulacro'),
+    reunion: getAdminCount('Reunión'),
+    ecotour: getAdminCount('EcoTour'),
+    base: getAdminCount('Asistencia a Base Operativa'),
+    auditoria: getAdminCount('Inspección / Auditoría'),
+    capacitacion: getAdminCount('Inducción / Capacitación'),
+    visita: getAdminCount('Visita general'),
+    difusion: getAdminCount('Difusión Temática'),
+    otro: getAdminCount('Otro'),
+    totalActivities: filteredAdminLogs.length
+  };
+
+  const today = new Date().toISOString().split('T')[0];
+  const isOverdue = (scheduledDate, status) => status !== 'Completada' && scheduledDate && scheduledDate < today;
+  const isDueToday = (scheduledDate, status) => status !== 'Completada' && scheduledDate && scheduledDate === today;
+
+  const totalTasksCount = (tasks || []).length;
+  const completedTasksCount = (tasks || []).filter(t => t && t.status === 'Completada').length;
+  const pendingTasksCount = (tasks || []).filter(t => t && t.status !== 'Completada').length;
+  const overdueTasksCount = (tasks || []).filter(t => isOverdue(t?.scheduled_date, t?.status)).length;
+  const complianceRate = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
+
+  const filteredTasks = (tasks || []).filter(t => {
+    if (!t) return false;
+    if (filterStatus === 'Pendientes') return t.status !== 'Completada';
+    if (filterStatus === 'Completadas') return t.status === 'Completada';
+    return true;
+  });
+
+  const sortedTasks = [...filteredTasks].sort((a, b) => {
+    if (a.status === 'Completada' && b.status !== 'Completada') return 1;
+    if (a.status !== 'Completada' && b.status === 'Completada') return -1;
+    return new Date(a.scheduled_date || '1970-01-01') - new Date(b.scheduled_date || '1970-01-01');
+  });
+
+  // Generador PDF Relevo
+  const executeExportPDF = async () => {
+    setPdfGenerating(true);
+    try {
+      const doc = new jsPDF();
+      const inspectorName = currentUserProfile?.full_name || session?.user?.email || 'Inspector HSE';
+
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, 210, 36, 'F');
+
+      const logoBase64 = await getBase64ImageFromUrl('/logo.png');
+      if (logoBase64) {
+        try {
+          doc.addImage(logoBase64, 'PNG', 12, 6, 42, 22);
+        } catch {
+          doc.setFontSize(14);
+          doc.setTextColor(132, 204, 22);
+          doc.text('MARBAR S.A.', 14, 18);
+        }
+      } else {
+        doc.setFontSize(14);
+        doc.setTextColor(132, 204, 22);
+        doc.text('MARBAR S.A.', 14, 18);
+      }
+
+      doc.setFontSize(12);
+      doc.setTextColor(255, 255, 255);
+      doc.text('INFORME DE RELEVO Y CAMBIO DE GUARDIA', 60, 14);
+
+      doc.setFontSize(8.5);
+      doc.setTextColor(203, 213, 225);
+      doc.text(`Razón Social: MARBAR S.A. | Emisión: ${formatDateDDMMYYYY(today)}`, 60, 20);
+      doc.text(`Inspector Saliente: ${inspectorName}`, 60, 25);
+      doc.text(`Período de Diagrama (14x14): Desde ${formatDateDDMMYYYY(shiftStart)} hasta ${formatDateDDMMYYYY(shiftEnd)}`, 60, 30);
+
+      let currentY = 44;
+
+      // TABLA 1: ACTIVIDADES
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.text('1. ACTIVIDADES DIARIAS Y GESTIÓN EN CAMPO', 14, currentY);
+      currentY += 3;
+
+      const tableDataLogs = (dailyLogs || []).map((log) => [
+        formatDateDDMMYYYY(log?.log_date),
+        log?.rig_name || '',
+        log?.activity_type || 'Tarea Planificada',
+        log?.activities || '',
+        log?.pending_notes || 'Sin pendientes'
+      ]);
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Fecha', 'Equipo', 'Tipo de Actividad', 'Detalle / Hallazgos', 'Novedades Relevo']],
+        body: tableDataLogs.length > 0 ? tableDataLogs : [['-', '-', '-', 'Sin actividades registradas', '-']],
+        theme: 'grid',
+        headStyles: { fillColor: [101, 163, 13], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+        styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' },
+        columnStyles: {
+          0: { cellWidth: 22 },
+          1: { cellWidth: 28 },
+          2: { cellWidth: 34 },
+          3: { cellWidth: 64 },
+          4: { cellWidth: 42 }
+        }
+      });
+
+      currentY = (doc.lastAutoTable ? doc.lastAutoTable.finalY : currentY + 30) + 10;
+      if (currentY > 230) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      // TABLA 2: CONTINGENCIAS
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.text('2. CONTINGENCIAS, INCIDENTES Y ACCIDENTES', 14, currentY);
+      currentY += 3;
+
+      const tableDataInc = (incidents || []).map((inc) => [
+        formatDateDDMMYYYY(inc?.event_date),
+        inc?.rig_name || '',
+        inc?.event_type || '',
+        `${inc?.description || ''} ${inc?.immediate_action ? `\n[Medida Inmediata: ${inc.immediate_action}]` : ''}`
+      ]);
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Fecha', 'Equipo', 'Clasificación del Evento', 'Descripción y Medidas Adoptadas']],
+        body: tableDataInc.length > 0 ? tableDataInc : [['-', '-', 'Sin novedades', 'No se registraron contingencias ni incidentes en el turno']],
+        theme: 'grid',
+        headStyles: { fillColor: [217, 119, 6], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+        styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' },
+        columnStyles: {
+          0: { cellWidth: 22 },
+          1: { cellWidth: 30 },
+          2: { cellWidth: 46 },
+          3: { cellWidth: 92 }
+        }
+      });
+
+      currentY = (doc.lastAutoTable ? doc.lastAutoTable.finalY : currentY + 30) + 10;
+      if (currentY > 220) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      // SECCIÓN 3: MENSAJE LARGO Y CONSIGNAS
+      if (pdfHandoffNotes && pdfHandoffNotes.trim()) {
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42);
+        doc.setFont('helvetica', 'bold');
+        doc.text('3. CONSIGNAS GENERALES Y MENSAJE PARA LA GUARDIA ENTRANTE', 14, currentY);
+        currentY += 4;
+
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(51, 65, 85);
+
+        const splitNotes = doc.splitTextToSize(pdfHandoffNotes.trim(), 182);
+        const textHeight = splitNotes.length * 4.2 + 6;
+
+        if (currentY + textHeight > 260) {
+          doc.addPage();
+          currentY = 20;
+        }
+
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.roundedRect(14, currentY, 182, textHeight, 2, 2, 'FD');
+        doc.text(splitNotes, 18, currentY + 5);
+
+        currentY += textHeight + 8;
+      }
+
+      if (currentY > 230) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      // TABLA 4: BIENES
+      const sectionNum = (pdfHandoffNotes && pdfHandoffNotes.trim()) ? '4' : '3';
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${sectionNum}. ACTA DE ENTREGA DE BIENES Y RECURSOS ENTREGADOS (MARBAR S.A.)`, 14, currentY);
+      currentY += 3;
+
+      const deliveredAssets = (assets || []).filter(a => a?.is_delivered !== false);
+      const tableDataAssets = deliveredAssets.map((a) => [
+        a?.asset_name || '',
+        a?.condition_status || '',
+        a?.notes || 'En condiciones normales'
+      ]);
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Elemento / Recurso Entregado', 'Estado de Conservación', 'Observaciones / Kilometraje / Accesorios']],
+        body: tableDataAssets.length > 0 ? tableDataAssets : [['-', '-', 'Sin elementos entregados']],
+        theme: 'grid',
+        headStyles: { fillColor: [71, 85, 105], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+        styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' },
+        columnStyles: {
+          0: { cellWidth: 50 },
+          1: { cellWidth: 45 },
+          2: { cellWidth: 95 }
+        }
+      });
+
+      currentY = (doc.lastAutoTable ? doc.lastAutoTable.finalY : currentY + 30) + 20;
+      if (currentY > 250) {
+        doc.addPage();
+        currentY = 30;
+      }
+
+      // FIRMAS
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      doc.setFont('helvetica', 'normal');
+
+      doc.text('____________________________________', 25, currentY);
+      doc.text('Firma Inspector Saliente (Entrega)', 32, currentY + 5);
+      doc.text(`MARBAR S.A. - ${inspectorName}`, 32, currentY + 9);
+
+      doc.text('____________________________________', 125, currentY);
+      doc.text('Firma Inspector Entrante (Recepción)', 132, currentY + 5);
+      doc.text('MARBAR S.A. - Guardia Entrante', 135, currentY + 9);
+
+      doc.save(`Relevo_MARBAR_SA_${shiftStart}_al_${shiftEnd}.pdf`);
+      setShowPdfModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Error al generar PDF: ' + err.message);
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
+
+  const getBase64ImageFromUrl = (imageUrl) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'Anonymous';
+      const timer = setTimeout(() => resolve(null), 800);
+      img.onload = () => {
+        clearTimeout(timer);
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth || img.width;
+          canvas.height = img.naturalHeight || img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL('image/png'));
+        } catch {
+          resolve(null);
+        }
+      };
+      img.onerror = () => {
+        clearTimeout(timer);
+        resolve(null);
+      };
+      img.src = imageUrl;
+    });
+  };
+
+  const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
+
+  // LOGIN SCREEN
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl space-y-6">
+          <div className="text-center space-y-2">
+            <div className="inline-flex p-3 bg-amber-100 rounded-full text-amber-600 mb-1">
+              <ShieldCheck className="w-10 h-10" />
+            </div>
+            <h1 className="text-xl font-bold text-slate-900">MARBAR S.A.</h1>
+            <p className="text-xs text-slate-500">Control HSE y Operaciones en Perforación</p>
+          </div>
+
+          <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
+            {isRegistering && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre Completo:</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Juan Pérez"
+                  value={authFullName}
+                  onChange={(e) => setAuthFullName(e.target.value)}
+                  required
+                  className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Correo Electrónico:</label>
+              <input
+                type="email"
+                placeholder="usuario@marbar.com.ar"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                required
+                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña:</label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                required
+                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg text-sm transition disabled:opacity-50"
+            >
+              {authLoading ? 'Verificando...' : isRegistering ? 'Crear Cuenta' : 'Iniciar Sesión'}
+            </button>
+          </form>
+
+          <div className="text-center pt-2 border-t border-slate-100">
+            <button
+              onClick={() => setIsRegistering(!isRegistering)}
+              className="text-xs text-slate-600 hover:text-amber-600 font-semibold"
+            >
+              {isRegistering ? '¿Ya tienes cuenta? Inicia sesión' : '¿Nuevo usuario? Regístrate aquí'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // PANTALLA PRINCIPAL
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 pb-20">
       <header className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20">
@@ -1299,7 +1702,7 @@ export default function App() {
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span className="flex items-center gap-1 text-slate-300 font-medium">
                   <User className="w-3 h-3 text-amber-400" />
-                  {currentUserProfile?.full_name || session.user.email}
+                  {currentUserProfile?.full_name || session?.user?.email}
                 </span>
                 <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase ${
                   isAdmin ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-slate-700 text-slate-300'
@@ -1418,14 +1821,14 @@ export default function App() {
               </div>
             </section>
 
-            {/* SECCIÓN FILTRAR POR EQUIPO + TARJETAS DE VISITAS Y DÍAS SIN INCIDENTES */}
+            {/* SECCIÓN FILTRAR POR EQUIPO */}
             <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex justify-between items-center">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                   <Layers className="w-3.5 h-3.5" />
                   Filtrar por Equipo
                 </label>
-                {isAdmin && rigs.length > 0 && (
+                {isAdmin && (rigs || []).length > 0 && (
                   <button
                     onClick={handleOpenMoveModal}
                     className="flex items-center gap-1 text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold py-1.5 px-3 rounded-lg transition"
@@ -1442,12 +1845,11 @@ export default function App() {
                 className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
               >
                 <option value="ALL">🌐 Ver Todos los Equipos (Consolidado)</option>
-                {rigs.map((rig) => (
+                {(rigs || []).map((rig) => (
                   <option key={rig.id} value={rig.id}>📍 {rig.name}</option>
                 ))}
               </select>
 
-              {/* DETALLES DE POZO, TRAZABILIDAD DE VISITAS Y DÍAS SIN INCIDENTES */}
               {selectedRig !== 'ALL' && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
                   {currentLocation ? (
@@ -1575,7 +1977,7 @@ export default function App() {
                       onChange={(e) => setMoveRigId(e.target.value)}
                       className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
                     >
-                      {rigs.map((r) => (
+                      {(rigs || []).map((r) => (
                         <option key={r.id} value={r.id}>{r.name}</option>
                       ))}
                     </select>
@@ -1606,7 +2008,7 @@ export default function App() {
                 <div>
                   <div className="flex justify-between items-center mb-1.5">
                     <label className="block text-xs font-bold text-slate-700">
-                      Actividades del Catálogo Maestro para este pozo ({selectedTplIds.length}/{templates.length}):
+                      Actividades del Catálogo Maestro para este pozo ({selectedTplIds.length}/{(templates || []).length}):
                     </label>
                     <button
                       type="button"
@@ -1618,7 +2020,7 @@ export default function App() {
                   </div>
 
                   <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50/50 p-1">
-                    {templates.map((tpl) => {
+                    {(templates || []).map((tpl) => {
                       const isSelected = selectedTplIds.includes(tpl.id);
                       return (
                         <label key={tpl.id} className="flex items-center gap-2 p-2 hover:bg-amber-50/40 cursor-pointer text-xs rounded transition">
@@ -1901,7 +2303,7 @@ export default function App() {
                   const dueToday = isDueToday(task.scheduled_date, task.status);
                   const rigName = task.rig_locations?.rigs?.name || task.rigs?.name;
                   const locName = task.rig_locations?.location_name;
-                  const isLocked = task.status === 'Completada' && !isAdmin && task.completed_by !== session.user.id;
+                  const isLocked = task.status === 'Completada' && !isAdmin && task.completed_by !== session?.user?.id;
                   const shiftsList = Array.isArray(task.shifts_data) ? task.shifts_data : [];
 
                   return (
@@ -2241,18 +2643,18 @@ export default function App() {
                     <div className="flex justify-between items-start">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
-                          📅 {formatDateDDMMYYYY(log.log_date)}
+                          📅 {formatDateDDMMYYYY(log?.log_date)}
                         </span>
                         <span className="text-xs bg-slate-900 text-white font-bold px-2 py-0.5 rounded">
-                          🚜 {log.rig_name}
+                          🚜 {log?.rig_name}
                         </span>
                         <span className="text-xs bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">
-                          🏷️ {log.activity_type || 'Tarea Planificada'}
+                          🏷️ {log?.activity_type || 'Tarea Planificada'}
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-slate-400">Por: <strong>{log.user_name}</strong></span>
-                        {(log.user_id === session.user.id || isAdmin) && (
+                        <span className="text-[11px] text-slate-400">Por: <strong>{log?.user_name}</strong></span>
+                        {(log?.user_id === session?.user?.id || isAdmin) && (
                           <>
                             <button onClick={() => openEditLogModal(log)} className="text-slate-400 hover:text-amber-600 p-1" title="Editar actividad">
                               <Edit2 className="w-3.5 h-3.5" />
@@ -2266,9 +2668,9 @@ export default function App() {
                     </div>
                     <div className="text-xs text-slate-700 leading-relaxed whitespace-pre-line pt-1">
                       <strong className="text-slate-900 block text-[11px] uppercase tracking-wider mb-0.5">Actividades:</strong>
-                      {log.activities}
+                      {log?.activities}
                     </div>
-                    {log.pending_notes && (
+                    {log?.pending_notes && (
                       <div className="text-xs text-amber-800 bg-amber-50/80 p-2.5 rounded-lg border border-amber-200 mt-2">
                         <strong className="block text-[11px] uppercase tracking-wider text-amber-900 mb-0.5">Pendiente para el Relevo:</strong>
                         {log.pending_notes}
@@ -2281,10 +2683,9 @@ export default function App() {
           </div>
         )}
 
-        {/* CONTINGENCIAS CON CONTADORES, FILTROS Y MÉTRICAS POR RIG */}
+        {/* CONTINGENCIAS */}
         {activeTab === 'contingencias' && (
           <div className="space-y-4">
-            {/* 1. SECCIÓN DE FILTROS POR AÑO Y MES */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -2331,7 +2732,7 @@ export default function App() {
                   <select
                     value={incFilterMonth}
                     onChange={(e) => setIncFilterMonth(e.target.value)}
-                    className="p-1.5 border border-slate-300 rounded-md bg-white font-semibold text-slate-800"
+                    className="p-1.5 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
                   >
                     {monthOptions.map((m) => (
                       <option key={m.value} value={m.value}>{m.label}</option>
@@ -2350,7 +2751,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 2. TARJETAS INFORMATIVAS: TOTALES Y POR TIPO DE EVENTO */}
+            {/* TARJETAS INFORMATIVAS POR TIPO */}
             <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
               <div className="bg-slate-900 text-white p-3 rounded-xl shadow-sm col-span-2 sm:col-span-1">
                 <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block">Total Eventos</span>
@@ -2384,7 +2785,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 3. CANTIDAD DE EVENTOS POR EQUIPO */}
+            {/* EVENTOS POR EQUIPO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Truck className="w-4 h-4 text-amber-600" />
@@ -2441,7 +2842,7 @@ export default function App() {
                       required
                       className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
                     >
-                      {rigs.map((r) => (
+                      {(rigs || []).map((r) => (
                         <option key={r.id} value={r.id}>{r.name}</option>
                       ))}
                     </select>
@@ -2514,7 +2915,7 @@ export default function App() {
                         </span>
                         <span className="text-xs text-slate-500">📅 {formatDateDDMMYYYY(inc.event_date)}</span>
                       </div>
-                      {(inc.user_id === session.user.id || isAdmin) && (
+                      {(inc.user_id === session?.user?.id || isAdmin) && (
                         <div className="flex items-center gap-1">
                           <button onClick={() => openEditIncModal(inc)} className="text-slate-400 hover:text-red-600 p-1" title="Editar evento">
                             <Edit2 className="w-3.5 h-3.5" />
@@ -3123,7 +3524,7 @@ export default function App() {
               </form>
 
               <div className="divide-y divide-slate-100 pt-1">
-                {rigs.map((rig) => (
+                {(rigs || []).map((rig) => (
                   <div key={rig.id} className="py-2.5 flex justify-between items-center text-sm">
                     <span className="font-semibold text-slate-700">{rig.name}</span>
                     <button
@@ -3284,66 +3685,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL PARA DESCARGAR PDF CON COMENTARIOS Y MENSAJE DE RELEVO */}
-        {showPdfModal && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-              <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
-                <div>
-                  <h3 className="font-bold text-sm sm:text-base">Emisión de Relevo y Cambio de Guardia</h3>
-                  <p className="text-xs text-slate-400">MARBAR S.A. - Parte Oficial de Guardia</p>
-                </div>
-                <button type="button" onClick={() => setShowPdfModal(false)} className="text-slate-400 hover:text-white p-1">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="p-5 space-y-4 overflow-y-auto">
-                <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200 text-xs text-amber-900">
-                  <strong className="block mb-0.5">Mensaje para la guardia entrante / Reemplazo:</strong>
-                  Puedes redactar un texto largo con observaciones generales, puntos críticos para los próximos días, recomendaciones de seguridad y estados de pozo. Este mensaje figurará en una sección especial en el PDF descargado.
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    Comentarios, Novedades y Consignas para el Reemplazo:
-                  </label>
-                  <textarea
-                    value={pdfHandoffNotes}
-                    onChange={(e) => setPdfHandoffNotes(e.target.value)}
-                    placeholder="Escribe aquí las instrucciones de relevo, seguimiento de pozos, tareas pendientes de auditoría o novedades clave a tener en cuenta a futuro..."
-                    rows={6}
-                    className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  />
-                  <span className="text-[10px] text-slate-400 block mt-1">
-                    * Si dejas el campo vacío, el informe se generará únicamente con las tablas de actividades, contingencias y bienes.
-                  </span>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowPdfModal(false)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pdfGenerating}
-                    onClick={executeExportPDF}
-                    className="px-5 py-2 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1.5"
-                  >
-                    <FileDown className="w-4 h-4 text-amber-400" />
-                    {pdfGenerating ? 'Generando PDF...' : 'Generar y Descargar PDF'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* MODAL GLOBAL PARA REGISTRAR ACTIVIDAD DIARIA */}
+        {/* MODAL GLOBAL REGISTRAR ACTIVIDAD */}
         {showLogModal && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
@@ -3379,7 +3721,7 @@ export default function App() {
                       required
                       className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-semibold"
                     >
-                      {rigs.map((r) => (
+                      {(rigs || []).map((r) => (
                         <option key={r.id} value={r.id}>🚜 {r.name}</option>
                       ))}
                     </select>
@@ -3435,7 +3777,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL PARA REASIGNAR CAMPAÑA EXISTENTE A OTROS EQUIPOS */}
+        {/* MODAL REASIGNAR CAMPAÑA */}
         {reassignCampaignModal && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-purple-200 overflow-hidden">
@@ -3517,7 +3859,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL PARA ASIGNAR CUALQUIER TAREA DEL CATÁLOGO A EQUIPOS EXISTENTES */}
+        {/* MODAL ASIGNAR TAREA CATÁLOGO */}
         {assignTplModal && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
