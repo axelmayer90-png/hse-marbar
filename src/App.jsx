@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // Función auxiliar blindada para formato DD/MM/YYYY
+  // Función auxiliar ultra segura para formatear fechas a DD/MM/YYYY
   const formatDateDDMMYYYY = (dateStr) => {
     if (!dateStr || typeof dateStr !== 'string') return '-';
     try {
@@ -81,9 +81,10 @@ export default function App() {
   const [showIncModal, setShowIncModal] = useState(false);
   const [editingIncId, setEditingIncId] = useState(null);
 
-  // Filtros de Contingencias
+  // Filtros de Contingencias (Año, Mes y Equipo)
   const [incFilterYear, setIncFilterYear] = useState('ALL');
   const [incFilterMonth, setIncFilterMonth] = useState('ALL');
+  const [incFilterRig, setIncFilterRig] = useState('ALL');
 
   // Bienes / Recursos
   const [assets, setAssets] = useState([]);
@@ -309,7 +310,7 @@ export default function App() {
       const { data, error } = await supabase.from('broadcast_campaigns').select('*').order('created_at', { ascending: false });
       if (!error && data) setCampaigns(data);
     } catch {
-      // Ignorar si no existe tabla
+      // Ignorar
     }
   };
 
@@ -511,7 +512,7 @@ export default function App() {
 
   const currentRigVisitsStats = selectedRig !== 'ALL' ? getRigVisitsStats(selectedRig) : null;
 
-  // Lógica de Filtros en Contingencias
+  // Lógica de Filtros en Contingencias (Año, Mes y Equipo)
   const availableIncidentYears = useMemo(() => {
     try {
       const yearsSet = new Set();
@@ -535,12 +536,13 @@ export default function App() {
         const [year, month] = parts;
         if (incFilterYear !== 'ALL' && year !== incFilterYear) return false;
         if (incFilterMonth !== 'ALL' && month !== incFilterMonth) return false;
+        if (incFilterRig !== 'ALL' && inc.rig_id !== incFilterRig) return false;
         return true;
       });
     } catch {
       return [];
     }
-  }, [incidents, incFilterYear, incFilterMonth]);
+  }, [incidents, incFilterYear, incFilterMonth, incFilterRig]);
 
   const incidentTypeStats = useMemo(() => {
     const stats = {};
@@ -556,14 +558,14 @@ export default function App() {
   const incidentRigStats = useMemo(() => {
     const stats = {};
     (rigs || []).forEach(r => { 
-      if (r && r.id) stats[r.id] = { name: r.name, count: 0 }; 
+      if (r && r.id) stats[r.id] = { id: r.id, name: r.name, count: 0 }; 
     });
     (filteredIncidents || []).forEach(inc => {
       if (inc && inc.rig_id) {
         if (stats[inc.rig_id]) {
           stats[inc.rig_id].count++;
         } else {
-          stats[inc.rig_id] = { name: inc.rig_name || 'Equipo', count: 1 };
+          stats[inc.rig_id] = { id: inc.rig_id, name: inc.rig_name || 'Equipo', count: 1 };
         }
       }
     });
@@ -1136,7 +1138,7 @@ export default function App() {
 
       const locMap = {};
       (activeLocs || []).forEach(loc => {
-        locMap[loc.rig_id] = loc;
+        locMap[loc.rig_id] = loc.id;
       });
 
       const offsetDays = parseInt(assignTplModal.days_offset, 10) || 0;
@@ -1316,7 +1318,7 @@ export default function App() {
     otro: getLogCount('Otro')
   };
 
-  // Filtrado y agrupación segura en Panel Admin
+  // Filtrado Panel Admin
   const filteredAdminLogs = (dailyLogs || []).filter((log) => {
     if (!log) return false;
     if (adminSelectedInspector !== 'ALL' && log.user_id !== adminSelectedInspector) return false;
@@ -1388,26 +1390,28 @@ export default function App() {
     return new Date(a.scheduled_date || '1970-01-01') - new Date(b.scheduled_date || '1970-01-01');
   });
 
-  // Generador PDF Relevo
+  // GENERADOR PDF RELEVO
   const executeExportPDF = async () => {
     setPdfGenerating(true);
     try {
       const doc = new jsPDF();
       const inspectorName = currentUserProfile?.full_name || session?.user?.email || 'Inspector HSE';
 
+      // Header Banner
       doc.setFillColor(15, 23, 42);
       doc.rect(0, 0, 210, 36, 'F');
 
-      const logoBase64 = await getBase64ImageFromUrl('/logo.png');
-      if (logoBase64) {
-        try {
+      // Carga de logo segura
+      try {
+        const logoBase64 = await getBase64ImageFromUrl('/logo.png');
+        if (logoBase64) {
           doc.addImage(logoBase64, 'PNG', 12, 6, 42, 22);
-        } catch {
+        } else {
           doc.setFontSize(14);
           doc.setTextColor(132, 204, 22);
           doc.text('MARBAR S.A.', 14, 18);
         }
-      } else {
+      } catch {
         doc.setFontSize(14);
         doc.setTextColor(132, 204, 22);
         doc.text('MARBAR S.A.', 14, 18);
@@ -1425,7 +1429,7 @@ export default function App() {
 
       let currentY = 44;
 
-      // TABLA 1: ACTIVIDADES
+      // 1. ACTIVIDADES DIARIAS
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -1434,10 +1438,10 @@ export default function App() {
 
       const tableDataLogs = (dailyLogs || []).map((log) => [
         formatDateDDMMYYYY(log?.log_date),
-        log?.rig_name || '',
-        log?.activity_type || 'Tarea Planificada',
-        log?.activities || '',
-        log?.pending_notes || 'Sin pendientes'
+        String(log?.rig_name || '-'),
+        String(log?.activity_type || 'Tarea Planificada'),
+        String(log?.activities || '-'),
+        String(log?.pending_notes || 'Sin pendientes')
       ]);
 
       autoTable(doc, {
@@ -1462,7 +1466,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // TABLA 2: CONTINGENCIAS
+      // 2. CONTINGENCIAS
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -1471,9 +1475,9 @@ export default function App() {
 
       const tableDataInc = (incidents || []).map((inc) => [
         formatDateDDMMYYYY(inc?.event_date),
-        inc?.rig_name || '',
-        inc?.event_type || '',
-        `${inc?.description || ''} ${inc?.immediate_action ? `\n[Medida Inmediata: ${inc.immediate_action}]` : ''}`
+        String(inc?.rig_name || '-'),
+        String(inc?.event_type || '-'),
+        String(`${inc?.description || 'Sin detalle'} ${inc?.immediate_action ? `\n[Medida Inmediata: ${inc.immediate_action}]` : ''}`)
       ]);
 
       autoTable(doc, {
@@ -1497,7 +1501,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // SECCIÓN 3: MENSAJE LARGO Y CONSIGNAS
+      // 3. MENSAJE PARA EL RELEVO (SI EXISTE)
       if (pdfHandoffNotes && pdfHandoffNotes.trim()) {
         doc.setFontSize(10);
         doc.setTextColor(15, 23, 42);
@@ -1530,7 +1534,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // TABLA 4: BIENES
+      // 4. ACTA DE ENTREGA DE BIENES
       const sectionNum = (pdfHandoffNotes && pdfHandoffNotes.trim()) ? '4' : '3';
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
@@ -1540,9 +1544,9 @@ export default function App() {
 
       const deliveredAssets = (assets || []).filter(a => a?.is_delivered !== false);
       const tableDataAssets = deliveredAssets.map((a) => [
-        a?.asset_name || '',
-        a?.condition_status || '',
-        a?.notes || 'En condiciones normales'
+        String(a?.asset_name || '-'),
+        String(a?.condition_status || '-'),
+        String(a?.notes || 'En condiciones normales')
       ]);
 
       autoTable(doc, {
@@ -1578,10 +1582,12 @@ export default function App() {
       doc.text('Firma Inspector Entrante (Recepción)', 132, currentY + 5);
       doc.text('MARBAR S.A. - Guardia Entrante', 135, currentY + 9);
 
-      doc.save(`Relevo_MARBAR_SA_${shiftStart}_al_${shiftEnd}.pdf`);
+      const safeStart = String(shiftStart || 'inicio').replace(/[^a-zA-Z0-9]/g, '-');
+      const safeEnd = String(shiftEnd || 'fin').replace(/[^a-zA-Z0-9]/g, '-');
+      doc.save(`Relevo_MARBAR_SA_${safeStart}_al_${safeEnd}.pdf`);
       setShowPdfModal(false);
     } catch (err) {
-      console.error(err);
+      console.error('Error detallado en PDF:', err);
       alert('Error al generar PDF: ' + err.message);
     } finally {
       setPdfGenerating(false);
@@ -1850,6 +1856,7 @@ export default function App() {
                 ))}
               </select>
 
+              {/* DETALLES DE POZO, TRAZABILIDAD DE VISITAS Y DÍAS SIN INCIDENTES */}
               {selectedRig !== 'ALL' && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
                   {currentLocation ? (
@@ -2683,9 +2690,10 @@ export default function App() {
           </div>
         )}
 
-        {/* CONTINGENCIAS */}
+        {/* CONTINGENCIAS CON CONTADORES, FILTROS (AÑO, MES Y EQUIPO) Y MÉTRICAS */}
         {activeTab === 'contingencias' && (
           <div className="space-y-4">
+            {/* 1. SECCIÓN DE FILTROS POR AÑO, MES Y EQUIPO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -2707,12 +2715,28 @@ export default function App() {
                 </button>
               </div>
 
-              {/* BARRA DE FILTROS DE FECHA */}
+              {/* BARRA DE FILTROS: EQUIPO, AÑO Y MES */}
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-wrap items-center gap-3 text-xs">
                 <span className="font-bold text-slate-700 flex items-center gap-1">
-                  <Filter className="w-3.5 h-3.5 text-red-600" /> Filtrar por Período:
+                  <Filter className="w-3.5 h-3.5 text-red-600" /> Filtrar Contingencias:
                 </span>
 
+                {/* FILTRO DE EQUIPO */}
+                <div className="flex items-center gap-1.5">
+                  <label className="text-slate-500 font-semibold">Equipo:</label>
+                  <select
+                    value={incFilterRig}
+                    onChange={(e) => setIncFilterRig(e.target.value)}
+                    className="p-1.5 border border-slate-300 rounded-md bg-white font-semibold text-slate-800"
+                  >
+                    <option value="ALL">🌐 Todos los Equipos</option>
+                    {(rigs || []).map((r) => (
+                      <option key={r.id} value={r.id}>🚜 {r.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* FILTRO DE AÑO */}
                 <div className="flex items-center gap-1.5">
                   <label className="text-slate-500 font-semibold">Año:</label>
                   <select
@@ -2727,12 +2751,13 @@ export default function App() {
                   </select>
                 </div>
 
+                {/* FILTRO DE MES */}
                 <div className="flex items-center gap-1.5">
                   <label className="text-slate-500 font-semibold">Mes:</label>
                   <select
                     value={incFilterMonth}
                     onChange={(e) => setIncFilterMonth(e.target.value)}
-                    className="p-1.5 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
+                    className="p-1.5 border border-slate-300 rounded-md bg-white font-semibold text-slate-800"
                   >
                     {monthOptions.map((m) => (
                       <option key={m.value} value={m.value}>{m.label}</option>
@@ -2740,9 +2765,9 @@ export default function App() {
                   </select>
                 </div>
 
-                {(incFilterYear !== 'ALL' || incFilterMonth !== 'ALL') && (
+                {(incFilterYear !== 'ALL' || incFilterMonth !== 'ALL' || incFilterRig !== 'ALL') && (
                   <button
-                    onClick={() => { setIncFilterYear('ALL'); setIncFilterMonth('ALL'); }}
+                    onClick={() => { setIncFilterYear('ALL'); setIncFilterMonth('ALL'); setIncFilterRig('ALL'); }}
                     className="text-[11px] text-red-600 hover:underline font-semibold ml-auto"
                   >
                     Restablecer Filtros
@@ -2751,12 +2776,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* TARJETAS INFORMATIVAS POR TIPO */}
+            {/* 2. TARJETAS INFORMATIVAS POR TIPO DE EVENTO */}
             <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
               <div className="bg-slate-900 text-white p-3 rounded-xl shadow-sm col-span-2 sm:col-span-1">
                 <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block">Total Eventos</span>
                 <span className="text-2xl font-black">{filteredIncidents.length}</span>
-                <span className="text-[10px] text-slate-400 block">registrados</span>
+                <span className="text-[10px] text-slate-400 block">
+                  {incFilterRig !== 'ALL' ? (rigs.find(r => r.id === incFilterRig)?.name || 'equipo') : 'todos los equipos'}
+                </span>
               </div>
               <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
                 <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block truncate">Ambiental</span>
@@ -2785,29 +2812,41 @@ export default function App() {
               </div>
             </div>
 
-            {/* EVENTOS POR EQUIPO */}
+            {/* 3. EVENTOS POR EQUIPO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Truck className="w-4 h-4 text-amber-600" />
-                Eventos por Equipo ({incFilterYear !== 'ALL' ? `Año ${incFilterYear}` : 'Histórico Completo'})
+                Eventos por Equipo ({incFilterYear !== 'ALL' ? `Año ${incFilterYear}` : 'Histórico'})
               </h3>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                {incidentRigStats.map((item, idx) => (
-                  <div key={idx} className={`p-2.5 rounded-lg border text-xs flex justify-between items-center ${
-                    item.count === 0 ? 'bg-slate-50 border-slate-200 opacity-70' : 'bg-red-50/70 border-red-200'
-                  }`}>
-                    <div>
-                      <span className="font-bold text-slate-800 block truncate max-w-[90px]">🚜 {item.name}</span>
-                      <span className="text-[10px] text-slate-400 block">{item.count} {item.count === 1 ? 'evento' : 'eventos'}</span>
+                {incidentRigStats.map((item, idx) => {
+                  const isSelectedInFilter = incFilterRig === item.id;
+                  return (
+                    <div 
+                      key={idx} 
+                      onClick={() => setIncFilterRig(isSelectedInFilter ? 'ALL' : item.id)}
+                      className={`p-2.5 rounded-lg border text-xs flex justify-between items-center cursor-pointer transition ${
+                        isSelectedInFilter 
+                          ? 'border-red-600 bg-red-100 ring-2 ring-red-400' 
+                          : item.count === 0 
+                            ? 'bg-slate-50 border-slate-200 opacity-70 hover:opacity-100' 
+                            : 'bg-red-50/70 border-red-200 hover:bg-red-100'
+                      }`}
+                      title={`Clic para filtrar únicamente por ${item.name}`}
+                    >
+                      <div>
+                        <span className="font-bold text-slate-800 block truncate max-w-[90px]">🚜 {item.name}</span>
+                        <span className="text-[10px] text-slate-400 block">{item.count} {item.count === 1 ? 'evento' : 'eventos'}</span>
+                      </div>
+                      <span className={`text-sm font-black px-2 py-0.5 rounded ${
+                        item.count === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {item.count}
+                      </span>
                     </div>
-                    <span className={`text-sm font-black px-2 py-0.5 rounded ${
-                      item.count === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {item.count}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -3377,49 +3416,49 @@ export default function App() {
 
                 <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
                   <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Simulacros</span>
-                  <span className="text-xl font-black text-blue-900">{adminStats.simulacro}</span>
+                  <span className="text-xl font-black text-blue-950">{adminStats.simulacro}</span>
                   <span className="text-[9px] text-blue-700 block mt-0.5">ejecutados</span>
                 </div>
 
                 <div className="bg-purple-50 p-2.5 rounded-xl border border-purple-200">
                   <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">Reuniones HSE</span>
-                  <span className="text-xl font-black text-purple-900">{adminStats.reunion}</span>
+                  <span className="text-xl font-black text-purple-950">{adminStats.reunion}</span>
                   <span className="text-[9px] text-purple-700 block mt-0.5">reuniones</span>
                 </div>
 
                 <div className="bg-teal-50 p-2.5 rounded-xl border border-teal-200">
                   <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">EcoTour</span>
-                  <span className="text-xl font-black text-teal-900">{adminStats.ecotour}</span>
+                  <span className="text-xl font-black text-teal-950">{adminStats.ecotour}</span>
                   <span className="text-[9px] text-teal-700 block mt-0.5">recorridos</span>
                 </div>
 
                 <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
                   <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">Asist. Base</span>
-                  <span className="text-xl font-black text-indigo-900">{adminStats.base}</span>
+                  <span className="text-xl font-black text-indigo-950">{adminStats.base}</span>
                   <span className="text-[9px] text-indigo-700 block mt-0.5">visitas</span>
                 </div>
 
                 <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
                   <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider block">Auditorías</span>
-                  <span className="text-xl font-black text-rose-900">{adminStats.auditoria}</span>
+                  <span className="text-xl font-black text-rose-950">{adminStats.auditoria}</span>
                   <span className="text-[9px] text-rose-700 block mt-0.5">inspecciones</span>
                 </div>
 
                 <div className="bg-cyan-50 p-2.5 rounded-xl border border-cyan-200">
                   <span className="text-[10px] font-bold text-cyan-800 uppercase tracking-wider block">Capacitaciones</span>
-                  <span className="text-xl font-black text-cyan-900">{adminStats.capacitacion}</span>
+                  <span className="text-xl font-black text-cyan-950">{adminStats.capacitacion}</span>
                   <span className="text-[9px] text-cyan-700 block mt-0.5">inducciones</span>
                 </div>
 
                 <div className="bg-orange-50 p-2.5 rounded-xl border border-orange-200">
                   <span className="text-[10px] font-bold text-orange-800 uppercase tracking-wider block">Visitas Gral.</span>
-                  <span className="text-xl font-black text-orange-900">{adminStats.visita}</span>
+                  <span className="text-xl font-black text-orange-950">{adminStats.visita}</span>
                   <span className="text-[9px] text-orange-700 block mt-0.5">generales</span>
                 </div>
 
                 <div className="bg-fuchsia-50 p-2.5 rounded-xl border border-fuchsia-200">
                   <span className="text-[10px] font-bold text-fuchsia-800 uppercase tracking-wider block">Difusiones</span>
-                  <span className="text-xl font-black text-fuchsia-900">{adminStats.difusion}</span>
+                  <span className="text-xl font-black text-fuchsia-950">{adminStats.difusion}</span>
                   <span className="text-[9px] text-fuchsia-700 block mt-0.5">temáticas</span>
                 </div>
 
@@ -3682,6 +3721,65 @@ export default function App() {
                 </div>
               </div>
             </section>
+          </div>
+        )}
+
+        {/* MODAL PARA DESCARGAR PDF */}
+        {showPdfModal && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base">Emisión de Relevo y Cambio de Guardia</h3>
+                  <p className="text-xs text-slate-400">MARBAR S.A. - Parte Oficial de Guardia</p>
+                </div>
+                <button type="button" onClick={() => setShowPdfModal(false)} className="text-slate-400 hover:text-white p-1">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 overflow-y-auto">
+                <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200 text-xs text-amber-900">
+                  <strong className="block mb-0.5">Mensaje para la guardia entrante / Reemplazo:</strong>
+                  Puedes redactar un texto largo con observaciones generales, puntos críticos para los próximos días, recomendaciones de seguridad y estados de pozo. Este mensaje figurará en una sección especial en el PDF descargado.
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Comentarios, Novedades y Consignas para el Reemplazo:
+                  </label>
+                  <textarea
+                    value={pdfHandoffNotes}
+                    onChange={(e) => setPdfHandoffNotes(e.target.value)}
+                    placeholder="Escribe aquí las instrucciones de relevo, seguimiento de pozos, tareas pendientes de auditoría o novedades clave a tener en cuenta a futuro..."
+                    rows={6}
+                    className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-400 block mt-1">
+                    * Si dejas el campo vacío, el informe se generará únicamente con las tablas de actividades, contingencias y bienes.
+                  </span>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowPdfModal(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pdfGenerating}
+                    onClick={executeExportPDF}
+                    className="px-5 py-2 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <FileDown className="w-4 h-4 text-amber-400" />
+                    {pdfGenerating ? 'Generando PDF...' : 'Generar y Descargar PDF'}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
