@@ -7,7 +7,7 @@ import {
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
   BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users,
-  Award, Send, Eye, Clock
+  Award, Send, Eye, Clock, UserCheck
 } from 'lucide-react';
 
 export default function App() {
@@ -68,6 +68,7 @@ export default function App() {
   const [logActivityType, setLogActivityType] = useState('Tarea Planificada');
   const [logActivities, setLogActivities] = useState('');
   const [logPending, setLogPending] = useState('');
+  const [logTargetUserId, setLogTargetUserId] = useState(''); // Usuario al que se le carga la jornada
   const [showLogModal, setShowLogModal] = useState(false);
   const [editingLogId, setEditingLogId] = useState(null);
 
@@ -310,7 +311,7 @@ export default function App() {
       const { data, error } = await supabase.from('broadcast_campaigns').select('*').order('created_at', { ascending: false });
       if (!error && data) setCampaigns(data);
     } catch {
-      // Ignorar
+      // Ignorar si no existe tabla
     }
   };
 
@@ -431,7 +432,9 @@ export default function App() {
     if (session) loadTasks();
   }, [selectedRig, session]);
 
-  // CÁLCULO SEGURO DE DÍAS SIN INCIDENTES
+  const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
+
+  // DÍAS SIN INCIDENTES
   const calculateDaysWithoutIncidents = () => {
     if (selectedRig === 'ALL' || !selectedRig) return null;
 
@@ -512,7 +515,7 @@ export default function App() {
 
   const currentRigVisitsStats = selectedRig !== 'ALL' ? getRigVisitsStats(selectedRig) : null;
 
-  // Lógica de Filtros en Contingencias (Año, Mes y Equipo)
+  // Lógica de Filtros en Contingencias
   const availableIncidentYears = useMemo(() => {
     try {
       const yearsSet = new Set();
@@ -572,12 +575,13 @@ export default function App() {
     return Object.values(stats);
   }, [filteredIncidents, rigs]);
 
-  // DIARIO DE ACTIVIDADES
-  const openNewLogModal = (presetRigId = null) => {
+  // DIARIO DE ACTIVIDADES (PERMITE CARGA COMO ADMINISTRADOR PARA OTROS INSPECTORES)
+  const openNewLogModal = (presetRigId = null, presetUserId = null) => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
     const targetRig = presetRigId || (selectedRig !== 'ALL' ? selectedRig : (rigs[0]?.id || ''));
     setLogRigId(targetRig);
+    setLogTargetUserId(presetUserId || session?.user?.id || '');
     setLogActivityType('Tarea Planificada');
     setLogActivities('');
     setLogPending('');
@@ -588,6 +592,7 @@ export default function App() {
     setEditingLogId(log.id);
     setLogDate(log.log_date || new Date().toISOString().split('T')[0]);
     setLogRigId(log.rig_id || '');
+    setLogTargetUserId(log.user_id || session?.user?.id || '');
     setLogActivityType(log.activity_type || 'Tarea Planificada');
     setLogActivities(log.activities || '');
     setLogPending(log.pending_notes || '');
@@ -603,17 +608,27 @@ export default function App() {
 
     const chosenRig = (rigs || []).find(r => r.id === logRigId);
     const rigName = chosenRig ? chosenRig.name : 'Equipo de Campo';
-    const inspectorName = currentUserProfile?.full_name || session?.user?.email;
+
+    // Determinar a qué inspector corresponde el registro
+    const targetId = (isAdmin && logTargetUserId) ? logTargetUserId : session.user.id;
+    const targetProfile = profiles.find(p => p.id === targetId);
+    const inspectorName = targetProfile?.full_name || currentUserProfile?.full_name || session?.user?.email;
 
     if (editingLogId) {
-      const { error } = await supabase.from('daily_logs').update({
+      const updatePayload = {
         log_date: logDate,
         rig_id: logRigId,
         rig_name: rigName,
         activity_type: logActivityType,
         activities: logActivities.trim(),
         pending_notes: logPending.trim()
-      }).eq('id', editingLogId);
+      };
+      if (isAdmin && logTargetUserId) {
+        updatePayload.user_id = targetId;
+        updatePayload.user_name = inspectorName;
+      }
+
+      const { error } = await supabase.from('daily_logs').update(updatePayload).eq('id', editingLogId);
 
       if (error) alert('Error al actualizar: ' + error.message);
       else {
@@ -623,7 +638,7 @@ export default function App() {
       }
     } else {
       const { error } = await supabase.from('daily_logs').insert({
-        user_id: session.user.id,
+        user_id: targetId,
         user_name: inspectorName,
         log_date: logDate,
         rig_id: logRigId,
@@ -976,7 +991,7 @@ export default function App() {
 
         if (!campError && newCampaign) createdCampaignId = newCampaign.id;
       } catch {
-        // En caso de que no exista tabla
+        // Ignorar si no existe tabla
       }
 
       if (broadcastSelectedRigs.length > 0) {
@@ -1390,18 +1405,16 @@ export default function App() {
     return new Date(a.scheduled_date || '1970-01-01') - new Date(b.scheduled_date || '1970-01-01');
   });
 
-  // GENERADOR PDF RELEVO
+  // Generador PDF Relevo
   const executeExportPDF = async () => {
     setPdfGenerating(true);
     try {
       const doc = new jsPDF();
       const inspectorName = currentUserProfile?.full_name || session?.user?.email || 'Inspector HSE';
 
-      // Header Banner
       doc.setFillColor(15, 23, 42);
       doc.rect(0, 0, 210, 36, 'F');
 
-      // Carga de logo segura
       try {
         const logoBase64 = await getBase64ImageFromUrl('/logo.png');
         if (logoBase64) {
@@ -1429,7 +1442,7 @@ export default function App() {
 
       let currentY = 44;
 
-      // 1. ACTIVIDADES DIARIAS
+      // TABLA 1: ACTIVIDADES
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -1466,7 +1479,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // 2. CONTINGENCIAS
+      // TABLA 2: CONTINGENCIAS
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -1501,7 +1514,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // 3. MENSAJE PARA EL RELEVO (SI EXISTE)
+      // SECCIÓN 3: MENSAJE LARGO Y CONSIGNAS
       if (pdfHandoffNotes && pdfHandoffNotes.trim()) {
         doc.setFontSize(10);
         doc.setTextColor(15, 23, 42);
@@ -1534,7 +1547,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // 4. ACTA DE ENTREGA DE BIENES
+      // TABLA 4: BIENES
       const sectionNum = (pdfHandoffNotes && pdfHandoffNotes.trim()) ? '4' : '3';
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
@@ -1619,8 +1632,6 @@ export default function App() {
       img.src = imageUrl;
     });
   };
-
-  const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
 
   // LOGIN SCREEN
   if (!session) {
@@ -2690,10 +2701,9 @@ export default function App() {
           </div>
         )}
 
-        {/* CONTINGENCIAS CON CONTADORES, FILTROS (AÑO, MES Y EQUIPO) Y MÉTRICAS */}
+        {/* CONTINGENCIAS */}
         {activeTab === 'contingencias' && (
           <div className="space-y-4">
-            {/* 1. SECCIÓN DE FILTROS POR AÑO, MES Y EQUIPO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -2776,7 +2786,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 2. TARJETAS INFORMATIVAS POR TIPO DE EVENTO */}
+            {/* TARJETAS INFORMATIVAS POR TIPO DE EVENTO */}
             <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
               <div className="bg-slate-900 text-white p-3 rounded-xl shadow-sm col-span-2 sm:col-span-1">
                 <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block">Total Eventos</span>
@@ -2812,7 +2822,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 3. EVENTOS POR EQUIPO */}
+            {/* EVENTOS POR EQUIPO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Truck className="w-4 h-4 text-amber-600" />
@@ -3416,43 +3426,43 @@ export default function App() {
 
                 <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
                   <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Simulacros</span>
-                  <span className="text-xl font-black text-blue-950">{adminStats.simulacro}</span>
+                  <span className="text-xl font-black text-blue-900">{adminStats.simulacro}</span>
                   <span className="text-[9px] text-blue-700 block mt-0.5">ejecutados</span>
                 </div>
 
                 <div className="bg-purple-50 p-2.5 rounded-xl border border-purple-200">
                   <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">Reuniones HSE</span>
-                  <span className="text-xl font-black text-purple-950">{adminStats.reunion}</span>
+                  <span className="text-xl font-black text-purple-900">{adminStats.reunion}</span>
                   <span className="text-[9px] text-purple-700 block mt-0.5">reuniones</span>
                 </div>
 
                 <div className="bg-teal-50 p-2.5 rounded-xl border border-teal-200">
                   <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">EcoTour</span>
-                  <span className="text-xl font-black text-teal-950">{adminStats.ecotour}</span>
+                  <span className="text-xl font-black text-teal-900">{adminStats.ecotour}</span>
                   <span className="text-[9px] text-teal-700 block mt-0.5">recorridos</span>
                 </div>
 
                 <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
                   <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">Asist. Base</span>
-                  <span className="text-xl font-black text-indigo-950">{adminStats.base}</span>
+                  <span className="text-xl font-black text-indigo-900">{adminStats.base}</span>
                   <span className="text-[9px] text-indigo-700 block mt-0.5">visitas</span>
                 </div>
 
                 <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
                   <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider block">Auditorías</span>
-                  <span className="text-xl font-black text-rose-950">{adminStats.auditoria}</span>
+                  <span className="text-xl font-black text-rose-900">{adminStats.auditoria}</span>
                   <span className="text-[9px] text-rose-700 block mt-0.5">inspecciones</span>
                 </div>
 
                 <div className="bg-cyan-50 p-2.5 rounded-xl border border-cyan-200">
                   <span className="text-[10px] font-bold text-cyan-800 uppercase tracking-wider block">Capacitaciones</span>
-                  <span className="text-xl font-black text-cyan-950">{adminStats.capacitacion}</span>
+                  <span className="text-xl font-black text-cyan-900">{adminStats.capacitacion}</span>
                   <span className="text-[9px] text-cyan-700 block mt-0.5">inducciones</span>
                 </div>
 
                 <div className="bg-orange-50 p-2.5 rounded-xl border border-orange-200">
                   <span className="text-[10px] font-bold text-orange-800 uppercase tracking-wider block">Visitas Gral.</span>
-                  <span className="text-xl font-black text-orange-950">{adminStats.visita}</span>
+                  <span className="text-xl font-black text-orange-900">{adminStats.visita}</span>
                   <span className="text-[9px] text-orange-700 block mt-0.5">generales</span>
                 </div>
 
@@ -3783,7 +3793,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL GLOBAL REGISTRAR ACTIVIDAD */}
+        {/* MODAL GLOBAL REGISTRAR ACTIVIDAD DIARIA (CON SELECTOR DE INSPECTOR PARA ADMIN) */}
         {showLogModal && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
@@ -3800,6 +3810,30 @@ export default function App() {
               </div>
 
               <form onSubmit={handleSaveDailyLog} className="p-5 space-y-4 overflow-y-auto">
+                {/* SELECTOR EXCLUSIVO PARA ADMINISTRADOR: ELEGIR A QUÉ INSPECTOR SE LE ASIGNA LA JORNADA */}
+                {isAdmin && (
+                  <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200">
+                    <label className="block text-xs font-bold text-amber-950 mb-1 flex items-center gap-1.5">
+                      <UserCheck className="w-4 h-4 text-amber-600" />
+                      Inspector asignado a la jornada (Carga Retroactiva / Admin):
+                    </label>
+                    <select
+                      value={logTargetUserId}
+                      onChange={(e) => setLogTargetUserId(e.target.value)}
+                      className="w-full text-sm p-2 border border-amber-300 rounded-lg bg-white font-semibold text-slate-800 focus:ring-2 focus:ring-amber-500"
+                    >
+                      {profiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          👤 {p.full_name || p.email} ({p.role || 'inspector'})
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-[10px] text-amber-800 block mt-1">
+                      Como administrador puedes asentar días trabajados o diagramas pasados a nombre de cualquier inspector.
+                    </span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha de la Actividad:</label>
