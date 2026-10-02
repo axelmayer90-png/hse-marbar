@@ -278,8 +278,19 @@ export default function App() {
     setAuthLoading(false);
   };
 
+  // Cierre de sesión blindado contra congelamientos
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Error al cerrar sesión:', err);
+    } finally {
+      localStorage.clear();
+      sessionStorage.clear();
+      setSession(null);
+      setCurrentUserProfile(null);
+      window.location.reload();
+    }
   };
 
   // 2. CARGA DE DATOS GENERALES
@@ -434,7 +445,7 @@ export default function App() {
 
   const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
 
-  // Mapa de Locación Activa por Equipo para el Selector
+  // Mapa de Locación Activa por Equipo para el Selector de Operaciones
   const activeLocationMap = useMemo(() => {
     const map = {};
     (allLocations || []).forEach(loc => {
@@ -526,7 +537,7 @@ export default function App() {
 
   const currentRigVisitsStats = selectedRig !== 'ALL' ? getRigVisitsStats(selectedRig) : null;
 
-  // Lógica de Filtros en Contingencias
+  // Lógica de Filtros en Contingencias (Año, Mes y Equipo)
   const availableIncidentYears = useMemo(() => {
     try {
       const yearsSet = new Set();
@@ -586,7 +597,7 @@ export default function App() {
     return Object.values(stats);
   }, [filteredIncidents, rigs]);
 
-  // DIARIO DE ACTIVIDADES
+  // DIARIO DE ACTIVIDADES (PERMITE CARGA DE ADMINISTRADOR PARA CUALQUIER INSPECTOR)
   const openNewLogModal = (presetRigId = null, presetUserId = null) => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
@@ -1001,7 +1012,7 @@ export default function App() {
 
         if (!campError && newCampaign) createdCampaignId = newCampaign.id;
       } catch {
-        // En caso de que no exista tabla
+        // Ignorar si no existe tabla
       }
 
       if (broadcastSelectedRigs.length > 0) {
@@ -1163,7 +1174,7 @@ export default function App() {
 
       const locMap = {};
       (activeLocs || []).forEach(loc => {
-        locMap[loc.rig_id] = loc.id;
+        locMap[loc.rig_id] = loc;
       });
 
       const offsetDays = parseInt(assignTplModal.days_offset, 10) || 0;
@@ -1422,9 +1433,11 @@ export default function App() {
       const doc = new jsPDF();
       const inspectorName = currentUserProfile?.full_name || session?.user?.email || 'Inspector HSE';
 
+      // Header Banner
       doc.setFillColor(15, 23, 42);
       doc.rect(0, 0, 210, 36, 'F');
 
+      // Carga de logo segura
       try {
         const logoBase64 = await getBase64ImageFromUrl('/logo.png');
         if (logoBase64) {
@@ -1643,6 +1656,81 @@ export default function App() {
     });
   };
 
+  // LOGIN SCREEN
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl space-y-6">
+          <div className="text-center space-y-2">
+            <div className="inline-flex p-3 bg-amber-100 rounded-full text-amber-600 mb-1">
+              <ShieldCheck className="w-10 h-10" />
+            </div>
+            <h1 className="text-xl font-bold text-slate-900">MARBAR S.A.</h1>
+            <p className="text-xs text-slate-500">Control HSE y Operaciones en Perforación</p>
+          </div>
+
+          <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
+            {isRegistering && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre Completo:</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Juan Pérez"
+                  value={authFullName}
+                  onChange={(e) => setAuthFullName(e.target.value)}
+                  required
+                  className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Correo Electrónico:</label>
+              <input
+                type="email"
+                placeholder="usuario@marbar.com.ar"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                required
+                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña:</label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                required
+                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg text-sm transition disabled:opacity-50"
+            >
+              {authLoading ? 'Verificando...' : isRegistering ? 'Crear Cuenta' : 'Iniciar Sesión'}
+            </button>
+          </form>
+
+          <div className="text-center pt-2 border-t border-slate-100">
+            <button
+              onClick={() => setIsRegistering(!isRegistering)}
+              className="text-xs text-slate-600 hover:text-amber-600 font-semibold"
+            >
+              {isRegistering ? '¿Ya tienes cuenta? Inicia sesión' : '¿Nuevo usuario? Regístrate aquí'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // PANTALLA PRINCIPAL
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 pb-20">
       <header className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20">
@@ -2642,9 +2730,10 @@ export default function App() {
           </div>
         )}
 
-        {/* CONTINGENCIAS */}
+        {/* CONTINGENCIAS CON CONTADORES, FILTROS (AÑO, MES Y EQUIPO) Y MÉTRICAS */}
         {activeTab === 'contingencias' && (
           <div className="space-y-4">
+            {/* 1. SECCIÓN DE FILTROS POR AÑO, MES Y EQUIPO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -2727,7 +2816,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* TARJETAS INFORMATIVAS POR TIPO DE EVENTO */}
+            {/* 2. TARJETAS INFORMATIVAS POR TIPO DE EVENTO */}
             <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
               <div className="bg-slate-900 text-white p-3 rounded-xl shadow-sm col-span-2 sm:col-span-1">
                 <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block">Total Eventos</span>
@@ -2763,7 +2852,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* EVENTOS POR EQUIPO */}
+            {/* 3. EVENTOS POR EQUIPO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Truck className="w-4 h-4 text-amber-600" />
