@@ -68,7 +68,7 @@ export default function App() {
   const [logActivityType, setLogActivityType] = useState('Tarea Planificada');
   const [logActivities, setLogActivities] = useState('');
   const [logPending, setLogPending] = useState('');
-  const [logTargetUserId, setLogTargetUserId] = useState(''); // Usuario al que se le carga la jornada
+  const [logTargetUserId, setLogTargetUserId] = useState('');
   const [showLogModal, setShowLogModal] = useState(false);
   const [editingLogId, setEditingLogId] = useState(null);
 
@@ -434,6 +434,17 @@ export default function App() {
 
   const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
 
+  // Mapa de Locación Activa por Equipo para el Selector
+  const activeLocationMap = useMemo(() => {
+    const map = {};
+    (allLocations || []).forEach(loc => {
+      if (loc && loc.is_current && loc.rig_id) {
+        map[loc.rig_id] = loc;
+      }
+    });
+    return map;
+  }, [allLocations]);
+
   // DÍAS SIN INCIDENTES
   const calculateDaysWithoutIncidents = () => {
     if (selectedRig === 'ALL' || !selectedRig) return null;
@@ -575,7 +586,7 @@ export default function App() {
     return Object.values(stats);
   }, [filteredIncidents, rigs]);
 
-  // DIARIO DE ACTIVIDADES (PERMITE CARGA COMO ADMINISTRADOR PARA OTROS INSPECTORES)
+  // DIARIO DE ACTIVIDADES
   const openNewLogModal = (presetRigId = null, presetUserId = null) => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
@@ -609,7 +620,6 @@ export default function App() {
     const chosenRig = (rigs || []).find(r => r.id === logRigId);
     const rigName = chosenRig ? chosenRig.name : 'Equipo de Campo';
 
-    // Determinar a qué inspector corresponde el registro
     const targetId = (isAdmin && logTargetUserId) ? logTargetUserId : session.user.id;
     const targetProfile = profiles.find(p => p.id === targetId);
     const inspectorName = targetProfile?.full_name || currentUserProfile?.full_name || session?.user?.email;
@@ -991,7 +1001,7 @@ export default function App() {
 
         if (!campError && newCampaign) createdCampaignId = newCampaign.id;
       } catch {
-        // Ignorar si no existe tabla
+        // En caso de que no exista tabla
       }
 
       if (broadcastSelectedRigs.length > 0) {
@@ -1405,7 +1415,7 @@ export default function App() {
     return new Date(a.scheduled_date || '1970-01-01') - new Date(b.scheduled_date || '1970-01-01');
   });
 
-  // Generador PDF Relevo
+  // GENERADOR PDF RELEVO
   const executeExportPDF = async () => {
     setPdfGenerating(true);
     try {
@@ -1442,7 +1452,7 @@ export default function App() {
 
       let currentY = 44;
 
-      // TABLA 1: ACTIVIDADES
+      // 1. ACTIVIDADES DIARIAS
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -1479,7 +1489,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // TABLA 2: CONTINGENCIAS
+      // 2. CONTINGENCIAS
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -1514,7 +1524,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // SECCIÓN 3: MENSAJE LARGO Y CONSIGNAS
+      // 3. MENSAJE PARA EL RELEVO (SI EXISTE)
       if (pdfHandoffNotes && pdfHandoffNotes.trim()) {
         doc.setFontSize(10);
         doc.setTextColor(15, 23, 42);
@@ -1547,7 +1557,7 @@ export default function App() {
         currentY = 20;
       }
 
-      // TABLA 4: BIENES
+      // 4. ACTA DE ENTREGA DE BIENES
       const sectionNum = (pdfHandoffNotes && pdfHandoffNotes.trim()) ? '4' : '3';
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
@@ -1633,81 +1643,6 @@ export default function App() {
     });
   };
 
-  // LOGIN SCREEN
-  if (!session) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl space-y-6">
-          <div className="text-center space-y-2">
-            <div className="inline-flex p-3 bg-amber-100 rounded-full text-amber-600 mb-1">
-              <ShieldCheck className="w-10 h-10" />
-            </div>
-            <h1 className="text-xl font-bold text-slate-900">MARBAR S.A.</h1>
-            <p className="text-xs text-slate-500">Control HSE y Operaciones en Perforación</p>
-          </div>
-
-          <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
-            {isRegistering && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre Completo:</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Juan Pérez"
-                  value={authFullName}
-                  onChange={(e) => setAuthFullName(e.target.value)}
-                  required
-                  className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Correo Electrónico:</label>
-              <input
-                type="email"
-                placeholder="usuario@marbar.com.ar"
-                value={authEmail}
-                onChange={(e) => setAuthEmail(e.target.value)}
-                required
-                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña:</label>
-              <input
-                type="password"
-                placeholder="••••••••"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                required
-                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={authLoading}
-              className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg text-sm transition disabled:opacity-50"
-            >
-              {authLoading ? 'Verificando...' : isRegistering ? 'Crear Cuenta' : 'Iniciar Sesión'}
-            </button>
-          </form>
-
-          <div className="text-center pt-2 border-t border-slate-100">
-            <button
-              onClick={() => setIsRegistering(!isRegistering)}
-              className="text-xs text-slate-600 hover:text-amber-600 font-semibold"
-            >
-              {isRegistering ? '¿Ya tienes cuenta? Inicia sesión' : '¿Nuevo usuario? Regístrate aquí'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // PANTALLA PRINCIPAL
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 pb-20">
       <header className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20">
@@ -1838,12 +1773,12 @@ export default function App() {
               </div>
             </section>
 
-            {/* SECCIÓN FILTRAR POR EQUIPO */}
+            {/* SECCIÓN FILTRAR POR EQUIPO: CON LOCACIÓN Y FECHA DE CARGA */}
             <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex justify-between items-center">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                   <Layers className="w-3.5 h-3.5" />
-                  Filtrar por Equipo
+                  Filtrar por Equipo (Locación y Fecha de Spud-in)
                 </label>
                 {isAdmin && (rigs || []).length > 0 && (
                   <button
@@ -1856,15 +1791,21 @@ export default function App() {
                 )}
               </div>
 
+              {/* SELECTOR CON NOMBRE, LOCACIÓN Y FECHA DE INICIO */}
               <select
                 value={selectedRig}
                 onChange={(e) => setSelectedRig(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-base font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-sm sm:text-base font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
               >
-                <option value="ALL">🌐 Ver Todos los Equipos (Consolidado)</option>
-                {(rigs || []).map((rig) => (
-                  <option key={rig.id} value={rig.id}>📍 {rig.name}</option>
-                ))}
+                <option value="ALL">🌐 Ver Todos los Equipos (Consolidado General)</option>
+                {(rigs || []).map((rig) => {
+                  const loc = activeLocationMap[rig.id];
+                  return (
+                    <option key={rig.id} value={rig.id}>
+                      🚜 {rig.name} {loc ? `| 📍 ${loc.location_name} (desde ${formatDateDDMMYYYY(loc.start_date)})` : '| (Sin locación activa / En DTM)'}
+                    </option>
+                  );
+                })}
               </select>
 
               {/* DETALLES DE POZO, TRAZABILIDAD DE VISITAS Y DÍAS SIN INCIDENTES */}
@@ -3426,43 +3367,43 @@ export default function App() {
 
                 <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
                   <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Simulacros</span>
-                  <span className="text-xl font-black text-blue-900">{adminStats.simulacro}</span>
+                  <span className="text-xl font-black text-blue-950">{adminStats.simulacro}</span>
                   <span className="text-[9px] text-blue-700 block mt-0.5">ejecutados</span>
                 </div>
 
                 <div className="bg-purple-50 p-2.5 rounded-xl border border-purple-200">
                   <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">Reuniones HSE</span>
-                  <span className="text-xl font-black text-purple-900">{adminStats.reunion}</span>
+                  <span className="text-xl font-black text-purple-950">{adminStats.reunion}</span>
                   <span className="text-[9px] text-purple-700 block mt-0.5">reuniones</span>
                 </div>
 
                 <div className="bg-teal-50 p-2.5 rounded-xl border border-teal-200">
                   <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">EcoTour</span>
-                  <span className="text-xl font-black text-teal-900">{adminStats.ecotour}</span>
+                  <span className="text-xl font-black text-teal-950">{adminStats.ecotour}</span>
                   <span className="text-[9px] text-teal-700 block mt-0.5">recorridos</span>
                 </div>
 
                 <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
                   <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">Asist. Base</span>
-                  <span className="text-xl font-black text-indigo-900">{adminStats.base}</span>
+                  <span className="text-xl font-black text-indigo-950">{adminStats.base}</span>
                   <span className="text-[9px] text-indigo-700 block mt-0.5">visitas</span>
                 </div>
 
                 <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
                   <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider block">Auditorías</span>
-                  <span className="text-xl font-black text-rose-900">{adminStats.auditoria}</span>
+                  <span className="text-xl font-black text-rose-950">{adminStats.auditoria}</span>
                   <span className="text-[9px] text-rose-700 block mt-0.5">inspecciones</span>
                 </div>
 
                 <div className="bg-cyan-50 p-2.5 rounded-xl border border-cyan-200">
                   <span className="text-[10px] font-bold text-cyan-800 uppercase tracking-wider block">Capacitaciones</span>
-                  <span className="text-xl font-black text-cyan-900">{adminStats.capacitacion}</span>
+                  <span className="text-xl font-black text-cyan-950">{adminStats.capacitacion}</span>
                   <span className="text-[9px] text-cyan-700 block mt-0.5">inducciones</span>
                 </div>
 
                 <div className="bg-orange-50 p-2.5 rounded-xl border border-orange-200">
                   <span className="text-[10px] font-bold text-orange-800 uppercase tracking-wider block">Visitas Gral.</span>
-                  <span className="text-xl font-black text-orange-900">{adminStats.visita}</span>
+                  <span className="text-xl font-black text-orange-950">{adminStats.visita}</span>
                   <span className="text-[9px] text-orange-700 block mt-0.5">generales</span>
                 </div>
 
@@ -3793,7 +3734,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL GLOBAL REGISTRAR ACTIVIDAD DIARIA (CON SELECTOR DE INSPECTOR PARA ADMIN) */}
+        {/* MODAL GLOBAL REGISTRAR ACTIVIDAD DIARIA */}
         {showLogModal && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
@@ -3810,7 +3751,6 @@ export default function App() {
               </div>
 
               <form onSubmit={handleSaveDailyLog} className="p-5 space-y-4 overflow-y-auto">
-                {/* SELECTOR EXCLUSIVO PARA ADMINISTRADOR: ELEGIR A QUÉ INSPECTOR SE LE ASIGNA LA JORNADA */}
                 {isAdmin && (
                   <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200">
                     <label className="block text-xs font-bold text-amber-950 mb-1 flex items-center gap-1.5">
