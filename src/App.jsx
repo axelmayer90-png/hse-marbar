@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // Función auxiliar ultra segura para formatear fechas a DD/MM/YYYY
+  // Función auxiliar para formatear fechas a DD/MM/YYYY
   const formatDateDDMMYYYY = (dateStr) => {
     if (!dateStr || typeof dateStr !== 'string') return '-';
     try {
@@ -278,7 +278,7 @@ export default function App() {
     setAuthLoading(false);
   };
 
-  // Cierre de sesión blindado contra congelamientos
+  // Cierre de sesión blindado
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -445,7 +445,7 @@ export default function App() {
 
   const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
 
-  // Mapa de Locación Activa por Equipo para el Selector de Operaciones
+  // Mapa de Locación Activa por Equipo
   const activeLocationMap = useMemo(() => {
     const map = {};
     (allLocations || []).forEach(loc => {
@@ -537,7 +537,7 @@ export default function App() {
 
   const currentRigVisitsStats = selectedRig !== 'ALL' ? getRigVisitsStats(selectedRig) : null;
 
-  // Lógica de Filtros en Contingencias (Año, Mes y Equipo)
+  // Lógica de Filtros en Contingencias
   const availableIncidentYears = useMemo(() => {
     try {
       const yearsSet = new Set();
@@ -597,7 +597,7 @@ export default function App() {
     return Object.values(stats);
   }, [filteredIncidents, rigs]);
 
-  // DIARIO DE ACTIVIDADES (PERMITE CARGA DE ADMINISTRADOR PARA CUALQUIER INSPECTOR)
+  // DIARIO DE ACTIVIDADES
   const openNewLogModal = (presetRigId = null, presetUserId = null) => {
     setEditingLogId(null);
     setLogDate(new Date().toISOString().split('T')[0]);
@@ -687,11 +687,13 @@ export default function App() {
     }
   };
 
-  // EVENTOS Y CONTINGENCIAS
+  // EVENTOS Y CONTINGENCIAS (ABRE EL MODAL CORRECTAMENTE)
   const openNewIncModal = () => {
     setEditingIncId(null);
     setIncDate(new Date().toISOString().split('T')[0]);
-    setIncRigId(rigs[0]?.id || '');
+    // Pre-cargar el equipo seleccionado actualmente si no es 'ALL'
+    const defaultRig = (selectedRig !== 'ALL' && selectedRig) ? selectedRig : (rigs[0]?.id || '');
+    setIncRigId(defaultRig);
     setIncType('Incidente ambiental (derrame)');
     setIncDesc('');
     setIncAction('');
@@ -710,7 +712,10 @@ export default function App() {
 
   const handleSaveIncident = async (e) => {
     e.preventDefault();
-    if (!incDesc.trim() || !incRigId) return;
+    if (!incDesc.trim() || !incRigId) {
+      alert('Debes ingresar la descripción y seleccionar el equipo asociado.');
+      return;
+    }
 
     const chosenRig = (rigs || []).find(r => r.id === incRigId);
     const rigName = chosenRig ? chosenRig.name : 'Equipo de Campo';
@@ -742,7 +747,7 @@ export default function App() {
         immediate_action: incAction.trim()
       });
 
-      if (error) alert('Error: ' + error.message);
+      if (error) alert('Error al guardar: ' + error.message);
       else {
         setShowIncModal(false);
         loadIncidents();
@@ -1012,7 +1017,7 @@ export default function App() {
 
         if (!campError && newCampaign) createdCampaignId = newCampaign.id;
       } catch {
-        // Ignorar si no existe tabla
+        // En caso de que no exista tabla
       }
 
       if (broadcastSelectedRigs.length > 0) {
@@ -2730,10 +2735,9 @@ export default function App() {
           </div>
         )}
 
-        {/* CONTINGENCIAS CON CONTADORES, FILTROS (AÑO, MES Y EQUIPO) Y MÉTRICAS */}
+        {/* CONTINGENCIAS */}
         {activeTab === 'contingencias' && (
           <div className="space-y-4">
-            {/* 1. SECCIÓN DE FILTROS POR AÑO, MES Y EQUIPO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -2816,7 +2820,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 2. TARJETAS INFORMATIVAS POR TIPO DE EVENTO */}
+            {/* TARJETAS INFORMATIVAS POR TIPO DE EVENTO */}
             <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
               <div className="bg-slate-900 text-white p-3 rounded-xl shadow-sm col-span-2 sm:col-span-1">
                 <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block">Total Eventos</span>
@@ -2852,7 +2856,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 3. EVENTOS POR EQUIPO */}
+            {/* EVENTOS POR EQUIPO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Truck className="w-4 h-4 text-amber-600" />
@@ -2889,91 +2893,6 @@ export default function App() {
                 })}
               </div>
             </div>
-
-            {/* MODAL CREAR / EDITAR INCIDENTE */}
-            {showIncModal && (
-              <form onSubmit={handleSaveIncident} className="bg-white p-5 rounded-xl shadow-lg border-2 border-red-500 space-y-3">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-sm font-bold text-slate-800">
-                    {editingIncId ? 'Editar Contingencia' : 'Cargar Contingencia / Suceso en Campo'}
-                  </h3>
-                  <button type="button" onClick={() => setShowIncModal(false)} className="text-slate-400 hover:text-slate-700">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha del Suceso:</label>
-                    <input
-                      type="date"
-                      value={incDate}
-                      onChange={(e) => setIncDate(e.target.value)}
-                      required
-                      className="w-full text-sm p-2 border border-slate-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Equipo Asociado:</label>
-                    <select
-                      value={incRigId}
-                      onChange={(e) => setIncRigId(e.target.value)}
-                      required
-                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
-                    >
-                      {(rigs || []).map((r) => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Clasificación:</label>
-                    <select
-                      value={incType}
-                      onChange={(e) => setIncType(e.target.value)}
-                      required
-                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-medium"
-                    >
-                      {incidentTypes.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Descripción del Suceso:</label>
-                  <textarea
-                    placeholder="Detalles de lo acontecido..."
-                    value={incDesc}
-                    onChange={(e) => setIncDesc(e.target.value)}
-                    required
-                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg focus:ring-1 focus:ring-red-500"
-                    rows={3}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Medidas Inmediatas Adoptadas:</label>
-                  <textarea
-                    placeholder="Acción correctiva implementada..."
-                    value={incAction}
-                    onChange={(e) => setIncAction(e.target.value)}
-                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg"
-                    rows={2}
-                  />
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <button type="button" onClick={() => setShowIncModal(false)} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">
-                    Cancelar
-                  </button>
-                  <button type="submit" className="px-4 py-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition">
-                    {editingIncId ? 'Actualizar Contingencia' : 'Guardar Contingencia'}
-                  </button>
-                </div>
-              </form>
-            )}
 
             {/* LISTADO DE CONTINGENCIAS FILTRADAS */}
             <div className="space-y-3">
@@ -3761,6 +3680,98 @@ export default function App() {
                 </div>
               </div>
             </section>
+          </div>
+        )}
+
+        {/* MODAL GLOBAL REGISTRAR / EDITAR CONTINGENCIA (MODAL FLOTANTE GLOBAL) */}
+        {showIncModal && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="bg-red-900 text-white p-4 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base">
+                    {editingIncId ? 'Editar Contingencia' : 'Cargar Contingencia / Suceso en Campo'}
+                  </h3>
+                  <p className="text-xs text-red-200">Tipificación oficial para relevo y cálculo de días sin incidentes</p>
+                </div>
+                <button type="button" onClick={() => setShowIncModal(false)} className="text-red-200 hover:text-white p-1">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveIncident} className="p-5 space-y-4 overflow-y-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha del Suceso:</label>
+                    <input
+                      type="date"
+                      value={incDate}
+                      onChange={(e) => setIncDate(e.target.value)}
+                      required
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Equipo Asociado:</label>
+                    <select
+                      value={incRigId}
+                      onChange={(e) => setIncRigId(e.target.value)}
+                      required
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-semibold"
+                    >
+                      {(rigs || []).map((r) => (
+                        <option key={r.id} value={r.id}>🚜 {r.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Clasificación:</label>
+                    <select
+                      value={incType}
+                      onChange={(e) => setIncType(e.target.value)}
+                      required
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-medium"
+                    >
+                      {incidentTypes.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Descripción del Suceso:</label>
+                  <textarea
+                    placeholder="Detalles de lo acontecido..."
+                    value={incDesc}
+                    onChange={(e) => setIncDesc(e.target.value)}
+                    required
+                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-red-500"
+                    rows={3}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Medidas Inmediatas Adoptadas:</label>
+                  <textarea
+                    placeholder="Acción correctiva implementada..."
+                    value={incAction}
+                    onChange={(e) => setIncAction(e.target.value)}
+                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg"
+                    rows={2}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button type="button" onClick={() => setShowIncModal(false)} className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-semibold">
+                    Cancelar
+                  </button>
+                  <button type="submit" className="px-4 py-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition">
+                    {editingIncId ? 'Actualizar Contingencia' : 'Guardar Contingencia'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 
