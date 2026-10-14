@@ -123,9 +123,9 @@ export default function App() {
   const [editClosedByName, setEditClosedByName] = useState('');
   const [isSavingTaskModal, setIsSavingTaskModal] = useState(false);
 
-  // Modal Registro / Modificación de Turno en Difusión
+  // Modal Registro / Modificación de Turno en Difusión (usando índice seguro)
   const [shiftTask, setShiftTask] = useState(null);
-  const [editingShiftId, setEditingShiftId] = useState(null);
+  const [editingShiftIndex, setEditingShiftIndex] = useState(null);
   const [shiftName, setShiftName] = useState('Turno Mañana / Turno 1');
   const [shiftParticipants, setShiftParticipants] = useState('');
   const [shiftDate, setShiftDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -279,7 +279,6 @@ export default function App() {
     setAuthLoading(false);
   };
 
-  // Cierre de sesión blindado
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -808,7 +807,7 @@ export default function App() {
     loadAssets();
   };
 
-  // MODAL GESTIÓN / CIERRE DE TAREA
+  // MODAL GESTIÓN / CIERRE DE TAREA (HABILITADO PARA TODOS)
   const openTaskEditModal = (task) => {
     setSelectedTaskForEdit(task);
     setEditScheduledDate(task.scheduled_date || new Date().toISOString().split('T')[0]);
@@ -835,7 +834,7 @@ export default function App() {
       closed_system_date: isDone ? (selectedTaskForEdit.closed_system_date || nowIso) : null,
       completed_by: isDone ? (selectedTaskForEdit.completed_by || session.user.id) : null,
       completed_by_name: isDone 
-        ? (isAdmin && editClosedByName.trim() ? editClosedByName.trim() : (currentUserProfile?.full_name || session?.user?.email)) 
+        ? (editClosedByName.trim() ? editClosedByName.trim() : (currentUserProfile?.full_name || session?.user?.email)) 
         : null
     };
 
@@ -853,16 +852,19 @@ export default function App() {
     setIsSavingTaskModal(false);
   };
 
-  // GESTIÓN DE TURNOS EN DIFUSIONES (ACCESIBLE PARA TODOS)
-  const openShiftModal = (task, existingShift = null) => {
+  // GESTIÓN DE TURNOS EN DIFUSIONES (USANDO ÍNDICE NUMÉRICO PARA COMPATIBILIDAD TOTAL)
+  const openShiftModal = (task, shiftIndex = null) => {
     setShiftTask(task);
-    if (existingShift) {
-      setEditingShiftId(existingShift.id);
+    const shiftsList = Array.isArray(task.shifts_data) ? task.shifts_data : [];
+
+    if (shiftIndex !== null && shiftsList[shiftIndex]) {
+      const existingShift = shiftsList[shiftIndex];
+      setEditingShiftIndex(shiftIndex);
       setShiftName(existingShift.shift_name || 'Turno Mañana / Turno 1');
       setShiftParticipants(existingShift.participants || '');
       setShiftDate(existingShift.date || new Date().toISOString().split('T')[0]);
     } else {
-      setEditingShiftId(null);
+      setEditingShiftIndex(null);
       setShiftName('Turno Mañana / Turno 1');
       setShiftParticipants('');
       setShiftDate(new Date().toISOString().split('T')[0]);
@@ -876,22 +878,18 @@ export default function App() {
     const currentShifts = Array.isArray(shiftTask.shifts_data) ? [...shiftTask.shifts_data] : [];
     const trainerName = currentUserProfile?.full_name || session?.user?.email || 'Inspector';
 
-    let updatedShifts = [];
-
-    if (editingShiftId) {
-      updatedShifts = currentShifts.map((s) => {
-        if (s.id === editingShiftId) {
-          return {
-            ...s,
-            shift_name: shiftName,
-            date: shiftDate,
-            participants: shiftParticipants.trim(),
-            last_edited_by: trainerName
-          };
-        }
-        return s;
-      });
+    if (editingShiftIndex !== null && currentShifts[editingShiftIndex]) {
+      // Actualizar el turno en esa posición exacta (funciona aunque no tenga ID previo)
+      currentShifts[editingShiftIndex] = {
+        ...currentShifts[editingShiftIndex],
+        id: currentShifts[editingShiftIndex].id || Date.now().toString(),
+        shift_name: shiftName,
+        date: shiftDate,
+        participants: shiftParticipants.trim(),
+        last_edited_by: trainerName
+      };
     } else {
+      // Agregar nuevo turno
       const newEntry = {
         id: Date.now().toString(),
         shift_name: shiftName,
@@ -899,26 +897,26 @@ export default function App() {
         trainer_name: trainerName,
         participants: shiftParticipants.trim()
       };
-      updatedShifts = [...currentShifts, newEntry];
+      currentShifts.push(newEntry);
     }
 
     const { error } = await supabase.from('tasks').update({
-      shifts_data: updatedShifts
+      shifts_data: currentShifts
     }).eq('id', shiftTask.id);
 
     if (error) {
       alert('Error al guardar turno de difusión: ' + error.message);
     } else {
-      setTasks(tasks.map(t => t.id === shiftTask.id ? { ...t, shifts_data: updatedShifts } : t));
+      setTasks(tasks.map(t => t.id === shiftTask.id ? { ...t, shifts_data: currentShifts } : t));
       setShiftTask(null);
-      setEditingShiftId(null);
+      setEditingShiftIndex(null);
     }
   };
 
-  const handleDeleteShiftEntry = async (task, shiftId) => {
+  const handleDeleteShiftEntry = async (task, indexToDelete) => {
     if (!confirm('¿Deseas eliminar este registro de turno?')) return;
     const currentShifts = Array.isArray(task.shifts_data) ? task.shifts_data : [];
-    const updatedShifts = currentShifts.filter(s => s.id !== shiftId);
+    const updatedShifts = currentShifts.filter((_, idx) => idx !== indexToDelete);
 
     const { error } = await supabase.from('tasks').update({
       shifts_data: updatedShifts
@@ -1060,7 +1058,7 @@ export default function App() {
 
         if (!campError && newCampaign) createdCampaignId = newCampaign.id;
       } catch {
-        // En caso de que no exista tabla
+        // Ignorar si no existe tabla
       }
 
       if (broadcastSelectedRigs.length > 0) {
@@ -1222,7 +1220,7 @@ export default function App() {
 
       const locMap = {};
       (activeLocs || []).forEach(loc => {
-        locMap[loc.rig_id] = loc;
+        locMap[loc.rig_id] = loc.id;
       });
 
       const offsetDays = parseInt(assignTplModal.days_offset, 10) || 0;
@@ -1481,7 +1479,6 @@ export default function App() {
       const doc = new jsPDF();
       const inspectorName = currentUserProfile?.full_name || session?.user?.email || 'Inspector HSE';
 
-      // Header Banner
       doc.setFillColor(15, 23, 42);
       doc.rect(0, 0, 210, 36, 'F');
 
@@ -1785,7 +1782,10 @@ export default function App() {
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-7 h-7 text-amber-500" />
             <div>
-              <h1 className="text-base font-bold leading-tight">MARBAR S.A. | HSE Perforación</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-bold leading-tight">MARBAR S.A. | HSE Perforación</h1>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono">v2.5</span>
+              </div>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span className="flex items-center gap-1 text-slate-300 font-medium">
                   <User className="w-3 h-3 text-amber-400" />
@@ -2206,8 +2206,8 @@ export default function App() {
                 <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
                   <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
                     <div>
-                      <h3 className="font-bold text-sm sm:text-base">Gestionar / Actualizar Tarea</h3>
-                      <p className="text-xs text-slate-400">MARBAR S.A. - Trazabilidad Operativa</p>
+                      <h3 className="font-bold text-sm sm:text-base">Gestionar / Modificar Comentario o Estado</h3>
+                      <p className="text-xs text-slate-400">MARBAR S.A. - Edición habilitada para todo el equipo</p>
                     </div>
                     <button type="button" onClick={() => setSelectedTaskForEdit(null)} className="text-slate-400 hover:text-white p-1">
                       <X className="w-5 h-5" />
@@ -2251,12 +2251,12 @@ export default function App() {
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Comentarios / Novedad de avance o resolución:
+                        Comentarios / Hallazgos (Puedes corregir o ampliar):
                       </label>
                       <textarea
                         value={editComments}
                         onChange={(e) => setEditComments(e.target.value)}
-                        placeholder="Ingresa qué se inspeccionó, hallazgos o cómo se resolvió..."
+                        placeholder="Ingresa o corrige qué se inspeccionó, hallazgos o cómo se resolvió..."
                         rows={3}
                         required={editStatus === 'Completada'}
                         className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
@@ -2285,17 +2285,14 @@ export default function App() {
 
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            Cerrado por:
+                            Cerrado / Modificado por:
                           </label>
                           <input
                             type="text"
                             value={editClosedByName}
                             onChange={(e) => setEditClosedByName(e.target.value)}
-                            disabled={!isAdmin}
                             placeholder="Nombre del inspector o responsable..."
-                            className={`w-full text-sm p-2 border border-slate-300 rounded-lg ${
-                              isAdmin ? 'bg-white text-slate-900' : 'bg-slate-100 text-slate-500 cursor-not-allowed'
-                            }`}
+                            className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white text-slate-900"
                           />
                         </div>
                       </div>
@@ -2314,18 +2311,18 @@ export default function App() {
               </div>
             )}
 
-            {/* MODAL ASISTENCIA POR TURNO (NUEVO O EDICIÓN) */}
+            {/* MODAL ASISTENCIA POR TURNO (NUEVO O EDICIÓN POR ÍNDICE) */}
             {shiftTask && (
               <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                 <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
-                  <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+                  <div className="bg-purple-900 text-white p-4 flex justify-between items-center">
                     <div>
                       <h3 className="font-bold text-sm sm:text-base">
-                        {editingShiftId ? 'Editar Turno de Difusión' : 'Registrar Difusión por Turno'}
+                        {editingShiftIndex !== null ? '✏️ Editar / Corregir Turno de Difusión' : 'Registrar Difusión por Turno'}
                       </h3>
-                      <p className="text-xs text-slate-400">{shiftTask.title}</p>
+                      <p className="text-xs text-purple-200">{shiftTask.title}</p>
                     </div>
-                    <button type="button" onClick={() => { setShiftTask(null); setEditingShiftId(null); }} className="text-slate-400 hover:text-white">
+                    <button type="button" onClick={() => { setShiftTask(null); setEditingShiftIndex(null); }} className="text-purple-200 hover:text-white">
                       <X className="w-5 h-5" />
                     </button>
                   </div>
@@ -2337,7 +2334,7 @@ export default function App() {
                         <select
                           value={shiftName}
                           onChange={(e) => setShiftName(e.target.value)}
-                          className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
+                          className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-semibold"
                         >
                           <option value="Turno Mañana / Turno 1">Turno Mañana / Turno 1</option>
                           <option value="Turno Tarde / Turno 2">Turno Tarde / Turno 2</option>
@@ -2360,24 +2357,24 @@ export default function App() {
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Personal Asistente / Participantes:
+                        Personal Asistente / Participantes / Comentarios del Turno:
                       </label>
                       <textarea
                         value={shiftParticipants}
                         onChange={(e) => setShiftParticipants(e.target.value)}
-                        placeholder="Nombres, DNI o puestos de los asistentes en este turno..."
+                        placeholder="Nombres, DNI, puestos o comentarios de los asistentes en este turno..."
                         rows={4}
                         required
-                        className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none"
                       />
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2 border-t">
-                      <button type="button" onClick={() => { setShiftTask(null); setEditingShiftId(null); }} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">
+                      <button type="button" onClick={() => { setShiftTask(null); setEditingShiftIndex(null); }} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">
                         Cancelar
                       </button>
-                      <button type="submit" className="px-5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg">
-                        {editingShiftId ? 'Actualizar Turno' : 'Guardar Asistencia de Turno'}
+                      <button type="submit" className="px-5 py-2 text-xs font-bold bg-purple-700 hover:bg-purple-800 text-white rounded-lg shadow-sm">
+                        {editingShiftIndex !== null ? 'Guardar Corrección del Turno' : 'Guardar Asistencia de Turno'}
                       </button>
                     </div>
                   </form>
@@ -2399,14 +2396,13 @@ export default function App() {
                   const dueToday = isDueToday(task.scheduled_date, task.status);
                   const rigName = task.rig_locations?.rigs?.name || task.rigs?.name;
                   const locName = task.rig_locations?.location_name;
-                  const isLocked = task.status === 'Completada' && !isAdmin && task.completed_by !== session?.user?.id;
                   const shiftsList = Array.isArray(task.shifts_data) ? task.shifts_data : [];
 
                   return (
                     <div 
                       key={task.id} 
                       className={`bg-white p-4 rounded-xl shadow-sm border transition-all ${
-                        task.status === 'Completada' ? 'border-emerald-200 bg-emerald-50/20 opacity-90' :
+                        task.status === 'Completada' ? 'border-emerald-200 bg-emerald-50/20 opacity-95' :
                         task.status === 'En Progreso' ? 'border-blue-300 bg-blue-50/20' :
                         overdue ? 'border-red-400 bg-red-50/40' :
                         dueToday ? 'border-amber-400 bg-amber-50/40' :
@@ -2453,10 +2449,19 @@ export default function App() {
 
                           {task.comments && (
                             <div className="mt-2 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-slate-700">
-                              <span className="font-bold text-slate-900 flex items-center gap-1 mb-0.5 text-[11px] uppercase tracking-wider">
-                                <MessageSquare className="w-3 h-3 text-amber-600" />
-                                Comentarios / Hallazgos:
-                              </span>
+                              <div className="flex justify-between items-center mb-0.5">
+                                <span className="font-bold text-slate-900 flex items-center gap-1 text-[11px] uppercase tracking-wider">
+                                  <MessageSquare className="w-3 h-3 text-amber-600" />
+                                  Comentarios / Hallazgos:
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => openTaskEditModal(task)}
+                                  className="text-[11px] text-amber-700 hover:underline font-bold flex items-center gap-1"
+                                >
+                                  <Edit2 className="w-3 h-3" /> Editar Comentario
+                                </button>
+                              </div>
                               <p className="whitespace-pre-line leading-relaxed">{task.comments}</p>
                             </div>
                           )}
@@ -2470,8 +2475,8 @@ export default function App() {
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => openShiftModal(task)}
-                                  className="text-[11px] font-bold text-purple-700 hover:text-purple-900 bg-white px-2 py-0.5 rounded border border-purple-300 shadow-xs"
+                                  onClick={() => openShiftModal(task, null)}
+                                  className="text-[11px] font-bold text-purple-700 hover:text-purple-900 bg-white px-2.5 py-1 rounded border border-purple-300 shadow-xs"
                                 >
                                   + Registrar Turno
                                 </button>
@@ -2480,35 +2485,38 @@ export default function App() {
                               {shiftsList.length === 0 ? (
                                 <p className="text-[11px] text-purple-600 italic">No se han registrado turnos aún.</p>
                               ) : (
-                                <div className="space-y-1 pt-1">
+                                <div className="space-y-1.5 pt-1">
                                   {shiftsList.map((s, sIdx) => (
-                                    <div key={sIdx} className="bg-white p-2 rounded border border-purple-100 text-[11px]">
-                                      <div className="flex justify-between items-center font-semibold text-slate-800">
+                                    <div key={sIdx} className="bg-white p-2.5 rounded-lg border border-purple-200 text-[11px] shadow-2xs">
+                                      <div className="flex flex-wrap justify-between items-center gap-2 font-semibold text-slate-800 border-b border-slate-100 pb-1 mb-1">
                                         <span>👥 {s.shift_name} ({formatDateDDMMYYYY(s.date)})</span>
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-slate-500 text-[10px]">Por: {s.trainer_name}</span>
-                                          {/* BOTÓN PARA EDITAR TURNO (ACCESIBLE PARA TODOS) */}
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-slate-500 text-[10px]">
+                                            Por: {s.trainer_name} {s.last_edited_by ? `(Editado por ${s.last_edited_by})` : ''}
+                                          </span>
+                                          {/* BOTÓN VISIBLE PARA EDITAR TURNO */}
                                           <button
                                             type="button"
-                                            onClick={() => openShiftModal(task, s)}
-                                            className="text-slate-400 hover:text-purple-700 p-0.5 rounded"
-                                            title="Editar participantes o fecha de este turno"
+                                            onClick={() => openShiftModal(task, sIdx)}
+                                            className="flex items-center gap-1 bg-purple-100 hover:bg-purple-200 text-purple-800 font-bold px-2 py-0.5 rounded text-[10px] transition"
+                                            title="Modificar este turno"
                                           >
-                                            <Edit2 className="w-3 h-3" />
+                                            <Edit2 className="w-2.5 h-2.5" />
+                                            Editar
                                           </button>
                                           {/* BOTÓN PARA ELIMINAR TURNO */}
                                           <button
                                             type="button"
-                                            onClick={() => handleDeleteShiftEntry(task, s.id)}
-                                            className="text-slate-300 hover:text-red-500 p-0.5 rounded"
+                                            onClick={() => handleDeleteShiftEntry(task, sIdx)}
+                                            className="text-slate-400 hover:text-red-600 p-0.5 rounded"
                                             title="Eliminar este turno"
                                           >
                                             <Trash2 className="w-3 h-3" />
                                           </button>
                                         </div>
                                       </div>
-                                      <p className="text-slate-600 mt-0.5">
-                                        <strong className="text-slate-700">Participantes:</strong> {s.participants}
+                                      <p className="text-slate-600 whitespace-pre-line">
+                                        <strong className="text-slate-700">Participantes / Notas:</strong> {s.participants}
                                       </p>
                                     </div>
                                   ))}
@@ -2518,22 +2526,16 @@ export default function App() {
                           )}
                         </div>
 
+                        {/* BOTÓN ABIERTO PARA TODOS PARA GESTIONAR O CORREGIR */}
                         <div className="flex items-center gap-2">
-                          {isLocked ? (
-                            <div className="flex items-center gap-1 text-xs bg-slate-100 text-slate-500 px-2.5 py-1.5 rounded-lg border border-slate-200 font-medium">
-                              <Lock className="w-3.5 h-3.5 text-slate-400" />
-                              <span>Cerrada</span>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => openTaskEditModal(task)}
-                              className="flex items-center gap-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                              Gestionar / Cerrar
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => openTaskEditModal(task)}
+                            className="flex items-center gap-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            {task.status === 'Completada' ? 'Editar / Corregir' : 'Gestionar / Cerrar'}
+                          </button>
 
                           {isAdmin && (
                             <button onClick={() => handleDeleteTask(task.id)} className="text-slate-300 hover:text-red-500 p-1" title="Eliminar tarea">
@@ -2772,15 +2774,13 @@ export default function App() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] text-slate-400">Por: <strong>{log?.user_name}</strong></span>
+                        <button onClick={() => openEditLogModal(log)} className="text-slate-400 hover:text-amber-600 p-1" title="Editar actividad">
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
                         {(log?.user_id === session?.user?.id || isAdmin) && (
-                          <>
-                            <button onClick={() => openEditLogModal(log)} className="text-slate-400 hover:text-amber-600 p-1" title="Editar actividad">
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleDeleteDailyLog(log.id)} className="text-slate-300 hover:text-red-500 p-1" title="Eliminar actividad">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </>
+                          <button onClick={() => handleDeleteDailyLog(log.id)} className="text-slate-300 hover:text-red-500 p-1" title="Eliminar actividad">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         )}
                       </div>
                     </div>
@@ -2831,7 +2831,6 @@ export default function App() {
                   <Filter className="w-3.5 h-3.5 text-red-600" /> Filtrar Contingencias:
                 </span>
 
-                {/* FILTRO DE EQUIPO */}
                 <div className="flex items-center gap-1.5">
                   <label className="text-slate-500 font-semibold">Equipo:</label>
                   <select
@@ -2846,7 +2845,6 @@ export default function App() {
                   </select>
                 </div>
 
-                {/* FILTRO DE AÑO */}
                 <div className="flex items-center gap-1.5">
                   <label className="text-slate-500 font-semibold">Año:</label>
                   <select
@@ -2861,7 +2859,6 @@ export default function App() {
                   </select>
                 </div>
 
-                {/* FILTRO DE MES */}
                 <div className="flex items-center gap-1.5">
                   <label className="text-slate-500 font-semibold">Mes:</label>
                   <select
@@ -2979,16 +2976,16 @@ export default function App() {
                         </span>
                         <span className="text-xs text-slate-500">📅 {formatDateDDMMYYYY(inc.event_date)}</span>
                       </div>
-                      {(inc.user_id === session?.user?.id || isAdmin) && (
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => openEditIncModal(inc)} className="text-slate-400 hover:text-red-600 p-1" title="Editar evento">
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => openEditIncModal(inc)} className="text-slate-400 hover:text-red-600 p-1" title="Editar evento">
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        {(inc.user_id === session?.user?.id || isAdmin) && (
                           <button onClick={() => handleDeleteIncident(inc.id)} className="text-slate-300 hover:text-red-500 p-1" title="Eliminar evento">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                     <p className="text-xs text-slate-800 font-medium leading-relaxed">{inc.description}</p>
                     {inc.immediate_action && (
