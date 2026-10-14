@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // Función auxiliar para formatear fechas a DD/MM/YYYY
+  // Función auxiliar ultra segura para formatear fechas a DD/MM/YYYY
   const formatDateDDMMYYYY = (dateStr) => {
     if (!dateStr || typeof dateStr !== 'string') return '-';
     try {
@@ -123,8 +123,9 @@ export default function App() {
   const [editClosedByName, setEditClosedByName] = useState('');
   const [isSavingTaskModal, setIsSavingTaskModal] = useState(false);
 
-  // Modal Turno Difusión
+  // Modal Registro / Modificación de Turno en Difusión
   const [shiftTask, setShiftTask] = useState(null);
+  const [editingShiftId, setEditingShiftId] = useState(null);
   const [shiftName, setShiftName] = useState('Turno Mañana / Turno 1');
   const [shiftParticipants, setShiftParticipants] = useState('');
   const [shiftDate, setShiftDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -687,11 +688,10 @@ export default function App() {
     }
   };
 
-  // EVENTOS Y CONTINGENCIAS (ABRE EL MODAL CORRECTAMENTE)
+  // EVENTOS Y CONTINGENCIAS
   const openNewIncModal = () => {
     setEditingIncId(null);
     setIncDate(new Date().toISOString().split('T')[0]);
-    // Pre-cargar el equipo seleccionado actualmente si no es 'ALL'
     const defaultRig = (selectedRig !== 'ALL' && selectedRig) ? selectedRig : (rigs[0]?.id || '');
     setIncRigId(defaultRig);
     setIncType('Incidente ambiental (derrame)');
@@ -853,38 +853,85 @@ export default function App() {
     setIsSavingTaskModal(false);
   };
 
-  // REGISTRO DE ASISTENCIA POR TURNO
-  const openShiftModal = (task) => {
+  // GESTIÓN DE TURNOS EN DIFUSIONES (NUEVO Y EDICIÓN DISPONIBLE PARA TODOS)
+  const openShiftModal = (task, existingShift = null) => {
     setShiftTask(task);
-    setShiftName('Turno Mañana / Turno 1');
-    setShiftParticipants('');
-    setShiftDate(new Date().toISOString().split('T')[0]);
+    if (existingShift) {
+      // Modo Edición de Turno Existente
+      setEditingShiftId(existingShift.id);
+      setShiftName(existingShift.shift_name || 'Turno Mañana / Turno 1');
+      setShiftParticipants(existingShift.participants || '');
+      setShiftDate(existingShift.date || new Date().toISOString().split('T')[0]);
+    } else {
+      // Modo Nuevo Turno
+      setEditingShiftId(null);
+      setShiftName('Turno Mañana / Turno 1');
+      setShiftParticipants('');
+      setShiftDate(new Date().toISOString().split('T')[0]);
+    }
   };
 
   const handleSaveShiftEntry = async (e) => {
     e.preventDefault();
     if (!shiftTask || !shiftParticipants.trim()) return;
 
-    const currentShifts = Array.isArray(shiftTask.shifts_data) ? shiftTask.shifts_data : [];
-    const newEntry = {
-      id: Date.now().toString(),
-      shift_name: shiftName,
-      date: shiftDate,
-      trainer_name: currentUserProfile?.full_name || session?.user?.email,
-      participants: shiftParticipants.trim()
-    };
+    const currentShifts = Array.isArray(shiftTask.shifts_data) ? [...shiftTask.shifts_data] : [];
+    const trainerName = currentUserProfile?.full_name || session?.user?.email || 'Inspector';
 
-    const updatedShifts = [...currentShifts, newEntry];
+    let updatedShifts = [];
+
+    if (editingShiftId) {
+      // Actualizar turno existente
+      updatedShifts = currentShifts.map((s) => {
+        if (s.id === editingShiftId) {
+          return {
+            ...s,
+            shift_name: shiftName,
+            date: shiftDate,
+            participants: shiftParticipants.trim(),
+            last_edited_by: trainerName
+          };
+        }
+        return s;
+      });
+    } else {
+      // Crear nuevo registro de turno
+      const newEntry = {
+        id: Date.now().toString(),
+        shift_name: shiftName,
+        date: shiftDate,
+        trainer_name: trainerName,
+        participants: shiftParticipants.trim()
+      };
+      updatedShifts = [...currentShifts, newEntry];
+    }
 
     const { error } = await supabase.from('tasks').update({
       shifts_data: updatedShifts
     }).eq('id', shiftTask.id);
 
     if (error) {
-      alert('Error al guardar registro de difusión: ' + error.message);
+      alert('Error al guardar turno de difusión: ' + error.message);
     } else {
       setTasks(tasks.map(t => t.id === shiftTask.id ? { ...t, shifts_data: updatedShifts } : t));
       setShiftTask(null);
+      setEditingShiftId(null);
+    }
+  };
+
+  const handleDeleteShiftEntry = async (task, shiftId) => {
+    if (!confirm('¿Deseas eliminar este registro de turno?')) return;
+    const currentShifts = Array.isArray(task.shifts_data) ? task.shifts_data : [];
+    const updatedShifts = currentShifts.filter(s => s.id !== shiftId);
+
+    const { error } = await supabase.from('tasks').update({
+      shifts_data: updatedShifts
+    }).eq('id', task.id);
+
+    if (error) {
+      alert('Error al eliminar el turno: ' + error.message);
+    } else {
+      setTasks(tasks.map(t => t.id === task.id ? { ...t, shifts_data: updatedShifts } : t));
     }
   };
 
@@ -1442,7 +1489,6 @@ export default function App() {
       doc.setFillColor(15, 23, 42);
       doc.rect(0, 0, 210, 36, 'F');
 
-      // Carga de logo segura
       try {
         const logoBase64 = await getBase64ImageFromUrl('/logo.png');
         if (logoBase64) {
@@ -2272,16 +2318,18 @@ export default function App() {
               </div>
             )}
 
-            {/* MODAL ASISTENCIA POR TURNO */}
+            {/* MODAL ASISTENCIA POR TURNO (NUEVO O EDICIÓN) */}
             {shiftTask && (
               <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                 <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
                   <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
                     <div>
-                      <h3 className="font-bold text-sm sm:text-base">Registrar Difusión por Turno</h3>
+                      <h3 className="font-bold text-sm sm:text-base">
+                        {editingShiftId ? 'Editar Turno de Difusión' : 'Registrar Difusión por Turno'}
+                      </h3>
                       <p className="text-xs text-slate-400">{shiftTask.title}</p>
                     </div>
-                    <button type="button" onClick={() => setShiftTask(null)} className="text-slate-400 hover:text-white">
+                    <button type="button" onClick={() => { setShiftTask(null); setEditingShiftId(null); }} className="text-slate-400 hover:text-white">
                       <X className="w-5 h-5" />
                     </button>
                   </div>
@@ -2329,11 +2377,11 @@ export default function App() {
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2 border-t">
-                      <button type="button" onClick={() => setShiftTask(null)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">
+                      <button type="button" onClick={() => { setShiftTask(null); setEditingShiftId(null); }} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">
                         Cancelar
                       </button>
                       <button type="submit" className="px-5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg">
-                        Guardar Asistencia de Turno
+                        {editingShiftId ? 'Actualizar Turno' : 'Guardar Asistencia de Turno'}
                       </button>
                     </div>
                   </form>
@@ -2439,11 +2487,33 @@ export default function App() {
                                 <div className="space-y-1 pt-1">
                                   {shiftsList.map((s, sIdx) => (
                                     <div key={sIdx} className="bg-white p-2 rounded border border-purple-100 text-[11px]">
-                                      <div className="flex justify-between font-semibold text-slate-800">
+                                      <div className="flex justify-between items-center font-semibold text-slate-800">
                                         <span>👥 {s.shift_name} ({formatDateDDMMYYYY(s.date)})</span>
-                                        <span className="text-slate-500 text-[10px]">Por: {s.trainer_name}</span>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-slate-500 text-[10px]">Por: {s.trainer_name}</span>
+                                          {/* BOTÓN PARA EDITAR TURNO (ACCESIBLE PARA TODOS) */}
+                                          <button
+                                            type="button"
+                                            onClick={() => openShiftModal(task, s)}
+                                            className="text-slate-400 hover:text-purple-700 p-0.5 rounded"
+                                            title="Editar participantes o fecha de este turno"
+                                          >
+                                            <Edit2 className="w-3 h-3" />
+                                          </button>
+                                          {/* BOTÓN PARA ELIMINAR TURNO */}
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteShiftEntry(task, s.id)}
+                                            className="text-slate-300 hover:text-red-500 p-0.5 rounded"
+                                            title="Eliminar este turno"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        </div>
                                       </div>
-                                      <p className="text-slate-600 mt-0.5"><strong className="text-slate-700">Participantes:</strong> {s.participants}</p>
+                                      <p className="text-slate-600 mt-0.5">
+                                        <strong className="text-slate-700">Participantes:</strong> {s.participants}
+                                      </p>
                                     </div>
                                   ))}
                                 </div>
@@ -3683,6 +3753,65 @@ export default function App() {
           </div>
         )}
 
+        {/* MODAL PARA DESCARGAR PDF */}
+        {showPdfModal && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base">Emisión de Relevo y Cambio de Guardia</h3>
+                  <p className="text-xs text-slate-400">MARBAR S.A. - Parte Oficial de Guardia</p>
+                </div>
+                <button type="button" onClick={() => setShowPdfModal(false)} className="text-slate-400 hover:text-white p-1">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 overflow-y-auto">
+                <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200 text-xs text-amber-900">
+                  <strong className="block mb-0.5">Mensaje para la guardia entrante / Reemplazo:</strong>
+                  Puedes redactar un texto largo con observaciones generales, puntos críticos para los próximos días, recomendaciones de seguridad y estados de pozo. Este mensaje figurará en una sección especial en el PDF descargado.
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Comentarios, Novedades y Consignas para el Reemplazo:
+                  </label>
+                  <textarea
+                    value={pdfHandoffNotes}
+                    onChange={(e) => setPdfHandoffNotes(e.target.value)}
+                    placeholder="Escribe aquí las instrucciones de relevo, seguimiento de pozos, tareas pendientes de auditoría o novedades clave a tener en cuenta a futuro..."
+                    rows={6}
+                    className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-400 block mt-1">
+                    * Si dejas el campo vacío, el informe se generará únicamente con las tablas de actividades, contingencias y bienes.
+                  </span>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowPdfModal(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pdfGenerating}
+                    onClick={executeExportPDF}
+                    className="px-5 py-2 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <FileDown className="w-4 h-4 text-amber-400" />
+                    {pdfGenerating ? 'Generando PDF...' : 'Generar y Descargar PDF'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* MODAL GLOBAL REGISTRAR / EDITAR CONTINGENCIA (MODAL FLOTANTE GLOBAL) */}
         {showIncModal && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -3746,7 +3875,7 @@ export default function App() {
                     value={incDesc}
                     onChange={(e) => setIncDesc(e.target.value)}
                     required
-                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-red-500"
+                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg focus:ring-1 focus:ring-red-500"
                     rows={3}
                   />
                 </div>
@@ -3771,65 +3900,6 @@ export default function App() {
                   </button>
                 </div>
               </form>
-            </div>
-          </div>
-        )}
-
-        {/* MODAL PARA DESCARGAR PDF */}
-        {showPdfModal && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-              <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
-                <div>
-                  <h3 className="font-bold text-sm sm:text-base">Emisión de Relevo y Cambio de Guardia</h3>
-                  <p className="text-xs text-slate-400">MARBAR S.A. - Parte Oficial de Guardia</p>
-                </div>
-                <button type="button" onClick={() => setShowPdfModal(false)} className="text-slate-400 hover:text-white p-1">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="p-5 space-y-4 overflow-y-auto">
-                <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200 text-xs text-amber-900">
-                  <strong className="block mb-0.5">Mensaje para la guardia entrante / Reemplazo:</strong>
-                  Puedes redactar un texto largo con observaciones generales, puntos críticos para los próximos días, recomendaciones de seguridad y estados de pozo. Este mensaje figurará en una sección especial en el PDF descargado.
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    Comentarios, Novedades y Consignas para el Reemplazo:
-                  </label>
-                  <textarea
-                    value={pdfHandoffNotes}
-                    onChange={(e) => setPdfHandoffNotes(e.target.value)}
-                    placeholder="Escribe aquí las instrucciones de relevo, seguimiento de pozos, tareas pendientes de auditoría o novedades clave a tener en cuenta a futuro..."
-                    rows={6}
-                    className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  />
-                  <span className="text-[10px] text-slate-400 block mt-1">
-                    * Si dejas el campo vacío, el informe se generará únicamente con las tablas de actividades, contingencias y bienes.
-                  </span>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowPdfModal(false)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pdfGenerating}
-                    onClick={executeExportPDF}
-                    className="px-5 py-2 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1.5"
-                  >
-                    <FileDown className="w-4 h-4 text-amber-400" />
-                    {pdfGenerating ? 'Generando PDF...' : 'Generar y Descargar PDF'}
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         )}
