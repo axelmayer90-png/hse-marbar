@@ -71,6 +71,13 @@ export default function App() {
   const [logActivities, setLogActivities] = useState('');
   const [logPending, setLogPending] = useState('');
   const [logTargetUserId, setLogTargetUserId] = useState('');
+  // Vinculación Diario -> Tarea del plan (punto 1)
+  const [logLinkedTaskId, setLogLinkedTaskId] = useState('');
+  // Actividades y equipos adicionales en la misma entrada (punto 8)
+  const [logExtraTypes, setLogExtraTypes] = useState([]);
+  const [logExtraRigIds, setLogExtraRigIds] = useState([]);
+  const [logOriginalLinkedTaskId, setLogOriginalLinkedTaskId] = useState('');
+  const [logRigOpenTasks, setLogRigOpenTasks] = useState([]);
   const [showLogModal, setShowLogModal] = useState(false);
   const [editingLogId, setEditingLogId] = useState(null);
 
@@ -95,6 +102,13 @@ export default function App() {
   const [newAssetCond, setNewAssetCond] = useState('Bueno / Operativo');
   const [newAssetNotes, setNewAssetNotes] = useState('');
   const [showAssetModal, setShowAssetModal] = useState(false);
+  // Actas de entrega por relevo (punto 12)
+  const [handoffRecords, setHandoffRecords] = useState([]);
+  const [showHandoffForm, setShowHandoffForm] = useState(false);
+  const [handoffToUserId, setHandoffToUserId] = useState('');
+  const [handoffDate, setHandoffDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [handoffNotes, setHandoffNotes] = useState('');
+  const [handoffSaving, setHandoffSaving] = useState(false);
 
   // Histórico
   const [pastLocations, setPastLocations] = useState([]);
@@ -131,9 +145,14 @@ export default function App() {
   const [shiftName, setShiftName] = useState('Turno Mañana / Turno 1');
   const [shiftParticipants, setShiftParticipants] = useState('');
   const [shiftDate, setShiftDate] = useState(() => new Date().toISOString().split('T')[0]);
+  // Registrar el mismo turno en otras campañas abiertas del mismo equipo (punto 3)
+  const [shiftAlsoTaskIds, setShiftAlsoTaskIds] = useState([]);
+  // Servicios que participaron en ese turno (CDS / SFP)
+  const [shiftServices, setShiftServices] = useState([]);
 
   // Campañas de Difusión
   const [campaigns, setCampaigns] = useState([]);
+  const [campaignStats, setCampaignStats] = useState({});
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastDesc, setBroadcastDesc] = useState('');
   const [broadcastDate, setBroadcastDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -178,6 +197,93 @@ export default function App() {
     'Difusión Temática',
     'Otro'
   ];
+
+  // CAMPAÑAS: criterio de cierre automático (punto 3)
+  // Cada servicio (CDS, SFP) tiene sus propios 3 turnos. Una campaña se completa cuando
+  // TODOS los servicios que aplican en ese equipo cubrieron sus 3 turnos operativos.
+  // Los servicios que aplican se marcan por campaña/equipo (tasks.required_services).
+  // Mantenimiento y Contratistas se registran pero no cuentan para la cobertura.
+  const OPERATIONAL_SHIFTS = ['Turno Mañana / Turno 1', 'Turno Tarde / Turno 2', 'Turno Noche / Turno 3'];
+  const REQUIRED_SHIFTS = OPERATIONAL_SHIFTS.length;
+  const CAMPAIGN_SERVICES = [
+    { key: 'CDS', label: 'Control de Sólidos (CDS)' },
+    { key: 'SFP', label: 'Fluidos / Inyección (SFP)' }
+  ];
+  const DEFAULT_REQUIRED_SERVICES = CAMPAIGN_SERVICES.map(s => s.key);
+
+  const getRequiredServices = (task) =>
+    Array.isArray(task?.required_services) ? task.required_services : DEFAULT_REQUIRED_SERVICES;
+
+  // Para turnos cargados antes de este cambio (sin servicio): sugiere uno leyendo el texto, solo como valor inicial al editar
+  const guessServicesFromText = (text = '') => {
+    const t = text.toUpperCase();
+    const found = [];
+    if (/\bCDS\b|CONTROL DE S[OÓ]LIDOS/.test(t)) found.push('CDS');
+    if (/\bSFP\b|FLUIDO|INYECC/.test(t)) found.push('SFP');
+    return found;
+  };
+
+  // Turnos operativos cubiertos para un servicio
+  const countCoveredShifts = (shifts, serviceKey) => new Set(
+    (Array.isArray(shifts) ? shifts : [])
+      .filter(s => Array.isArray(s?.services) && s.services.includes(serviceKey))
+      .map(s => s?.shift_name)
+      .filter(name => OPERATIONAL_SHIFTS.includes(name))
+  ).size;
+
+  const getCampaignCoverage = (task, shifts = task?.shifts_data) => {
+    const required = getRequiredServices(task);
+    const perService = required.map(key => ({ key, covered: countCoveredShifts(shifts, key) }));
+    const complete = perService.length > 0 && perService.every(s => s.covered >= REQUIRED_SHIFTS);
+    return { perService, complete };
+  };
+
+  // Helpers para entradas con varias actividades / varios equipos (punto 8).
+  // Los registros viejos solo tienen activity_type y rig_id, y siguen funcionando igual.
+  const getLogTypes = (l) =>
+    Array.isArray(l?.activity_types) && l.activity_types.length > 0
+      ? l.activity_types
+      : [l?.activity_type || 'Tarea Planificada'];
+  const logHasType = (l, type) => getLogTypes(l).includes(type);
+  const getLogRigIds = (l) => [l?.rig_id, ...(Array.isArray(l?.extra_rig_ids) ? l.extra_rig_ids : [])].filter(Boolean);
+  const getLogRigNames = (l) => {
+    const extras = (Array.isArray(l?.extra_rig_ids) ? l.extra_rig_ids : [])
+      .map(id => (rigs || []).find(r => r.id === id)?.name)
+      .filter(Boolean);
+    return [l?.rig_name, ...extras].filter(Boolean);
+  };
+
+  // Las bases no son equipos de perforación: no cuentan como "equipos activos" (punto 11)
+  const isBaseRig = (rigOrName) => {
+    const name = typeof rigOrName === 'string' ? rigOrName : rigOrName?.name;
+    return (name || '').trim().toUpperCase().startsWith('BASE');
+  };
+
+  const formatCoverage = (task) =>
+    getCampaignCoverage(task).perService.map(s => `${s.key} ${s.covered}/${REQUIRED_SHIFTS}`).join(' · ');
+
+  const getTaskRigId = (t) => t?.rig_id || t?.rig_locations?.rigs?.id || null;
+
+  // Arma el update de una tarea de campaña recalculando su estado según la cobertura.
+  // Si ya estaba Completada (por ejemplo, cerrada a mano), no se reabre sola.
+  const buildCampaignUpdate = (task, shifts, requiredServices = getRequiredServices(task)) => {
+    const { perService, complete } = getCampaignCoverage({ ...task, required_services: requiredServices }, shifts);
+    const anyShift = (Array.isArray(shifts) ? shifts : []).length > 0;
+    const computed = complete ? 'Completada' : anyShift ? 'En Progreso' : 'Pendiente';
+    const status = task.status === 'Completada' ? 'Completada' : computed;
+    const payload = { shifts_data: shifts, status };
+
+    if (status === 'Completada' && task.status !== 'Completada') {
+      const lastDate = shifts.map(s => s?.date).filter(Boolean).sort().pop() || new Date().toISOString().split('T')[0];
+      const resumen = perService.map(s => `${s.key} ${s.covered}/${REQUIRED_SHIFTS}`).join(', ');
+      payload.completed_date = lastDate;
+      payload.closed_work_date = lastDate;
+      payload.closed_system_date = new Date().toISOString();
+      payload.completed_by = session?.user?.id || null;
+      payload.completed_by_name = `${currentUserProfile?.full_name || session?.user?.email || 'Inspector'} (automático: ${resumen})`;
+    }
+    return payload;
+  };
 
   const incidentTypes = [
     'Incidente ambiental (derrame)',
@@ -323,6 +429,20 @@ export default function App() {
     try {
       const { data, error } = await supabase.from('broadcast_campaigns').select('*').order('created_at', { ascending: false });
       if (!error && data) setCampaigns(data);
+
+      // Avance de cada campaña: equipos asignados y completados
+      const { data: campTasks } = await supabase
+        .from('tasks')
+        .select('broadcast_campaign_id, status')
+        .not('broadcast_campaign_id', 'is', null);
+      const stats = {};
+      (campTasks || []).forEach(t => {
+        const s = stats[t.broadcast_campaign_id] || { total: 0, done: 0 };
+        s.total += 1;
+        if (t.status === 'Completada') s.done += 1;
+        stats[t.broadcast_campaign_id] = s;
+      });
+      setCampaignStats(stats);
     } catch {
       // Ignorar si no existe tabla
     }
@@ -355,6 +475,21 @@ export default function App() {
       setAssets(data || []);
     } catch (err) {
       console.error(err);
+    }
+    loadHandoffRecords();
+  };
+
+  const loadHandoffRecords = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('handoff_records')
+        .select('*')
+        .order('handoff_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(30);
+      if (!error) setHandoffRecords(data || []);
+    } catch {
+      // Si la tabla todavía no existe, la sección queda vacía
     }
   };
 
@@ -447,6 +582,16 @@ export default function App() {
 
   const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
 
+  // Pestañas de navegación (arriba en compu, barra inferior en el celular)
+  const navTabs = [
+    { key: 'operaciones', label: 'Operaciones', short: 'Plan', Icon: ClipboardList },
+    { key: 'guardia', label: 'Diario (14x14)', short: 'Diario', Icon: BookOpen },
+    { key: 'contingencias', label: 'Contingencias', short: 'Eventos', Icon: AlertOctagon, iconClass: 'text-red-400' },
+    { key: 'elementos', label: 'Bienes', short: 'Bienes', Icon: Car, iconClass: 'text-blue-400' },
+    { key: 'historico', label: 'Histórico', short: 'Histórico', Icon: Archive },
+    ...(isAdmin ? [{ key: 'admin', label: 'Admin', short: 'Admin', Icon: Settings }] : [])
+  ];
+
   // Mapa de Locación Activa por Equipo
   const activeLocationMap = useMemo(() => {
     const map = {};
@@ -510,7 +655,7 @@ export default function App() {
   const getRigVisitsStats = (rigId) => {
     if (!rigId) return { totalVisits: 0, lastVisitDate: null, daysAgo: null, lastInspector: null };
 
-    const rigLogs = (dailyLogs || []).filter(l => l && l.rig_id === rigId);
+    const rigLogs = (dailyLogs || []).filter(l => l && getLogRigIds(l).includes(rigId));
     const totalVisits = rigLogs.length;
 
     if (totalVisits === 0) {
@@ -643,6 +788,10 @@ export default function App() {
     setLogActivityType('Tarea Planificada');
     setLogActivities('');
     setLogPending('');
+    setLogLinkedTaskId('');
+    setLogOriginalLinkedTaskId('');
+    setLogExtraTypes([]);
+    setLogExtraRigIds([]);
     setShowLogModal(true);
   };
 
@@ -654,8 +803,69 @@ export default function App() {
     setLogActivityType(log.activity_type || 'Tarea Planificada');
     setLogActivities(log.activities || '');
     setLogPending(log.pending_notes || '');
+    setLogLinkedTaskId(log.linked_task_id || '');
+    setLogOriginalLinkedTaskId(log.linked_task_id || '');
+    setLogExtraTypes(getLogTypes(log).filter(t => t !== (log.activity_type || 'Tarea Planificada')));
+    setLogExtraRigIds(Array.isArray(log.extra_rig_ids) ? log.extra_rig_ids : []);
     setShowLogModal(true);
   };
+
+  // Carga las tareas abiertas del plan (locación actual) del equipo elegido en el Diario
+  useEffect(() => {
+    if (!showLogModal || !logRigId) {
+      setLogRigOpenTasks([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data: loc } = await supabase
+        .from('rig_locations')
+        .select('id')
+        .eq('rig_id', logRigId)
+        .eq('is_current', true)
+        .maybeSingle();
+
+      if (!loc) {
+        if (!cancelled) setLogRigOpenTasks([]);
+        return;
+      }
+
+      const { data } = await supabase
+        .from('tasks')
+        .select('id, title, scheduled_date, status, is_persistent, comments')
+        .eq('rig_location_id', loc.id)
+        .neq('status', 'Completada')
+        .order('scheduled_date', { ascending: true });
+
+      // Las campañas se cierran por turnos, no desde el Diario
+      if (!cancelled) setLogRigOpenTasks((data || []).filter(t => !t.is_persistent));
+    })();
+    return () => { cancelled = true; };
+  }, [showLogModal, logRigId]);
+
+  // Cierra en el plan la tarea vinculada a una actividad del Diario
+  const closeTaskFromLog = async (taskId, workDate, closerId, closerName, activityText) => {
+    const task = logRigOpenTasks.find(t => t.id === taskId);
+    const note = `[Cerrada desde Diario ${formatDateDDMMYYYY(workDate)}] ${activityText.slice(0, 400)}${activityText.length > 400 ? '…' : ''}`;
+    const { error } = await supabase
+      .from('tasks')
+      .update({
+        status: 'Completada',
+        completed_date: workDate,
+        closed_work_date: workDate,
+        closed_system_date: new Date().toISOString(),
+        completed_by: closerId,
+        completed_by_name: closerName,
+        comments: task?.comments ? `${task.comments}\n\n${note}` : note
+      })
+      .eq('id', taskId);
+    if (error) alert('La actividad se guardó, pero no se pudo cerrar la tarea del plan: ' + error.message);
+  };
+
+  const missingColumnHint = (error) =>
+    /column|schema cache/i.test(error?.message || '')
+      ? '\n\nFalta ejecutar el SQL de actualización en Supabase (ver supabase/migrations en el repo).'
+      : '';
 
   const handleSaveDailyLog = async (e) => {
     e.preventDefault();
@@ -671,15 +881,23 @@ export default function App() {
     const targetProfile = profiles.find(p => p.id === targetId);
     const inspectorName = targetProfile?.full_name || currentUserProfile?.full_name || session?.user?.email;
 
+    // Varias actividades y varios equipos en la misma entrada (punto 8)
+    const allTypes = [logActivityType, ...logExtraTypes.filter(t => t !== logActivityType)];
+    const extraRigIds = logExtraRigIds.filter(id => id && id !== logRigId);
+    const commonFields = {
+      log_date: logDate,
+      rig_id: logRigId,
+      rig_name: rigName,
+      activity_type: logActivityType, // actividad principal (compatibilidad con registros viejos)
+      activity_types: allTypes,
+      extra_rig_ids: extraRigIds,
+      activities: logActivities.trim(),
+      pending_notes: logPending.trim(),
+      linked_task_id: logLinkedTaskId || null
+    };
+
     if (editingLogId) {
-      const updatePayload = {
-        log_date: logDate,
-        rig_id: logRigId,
-        rig_name: rigName,
-        activity_type: logActivityType,
-        activities: logActivities.trim(),
-        pending_notes: logPending.trim()
-      };
+      const updatePayload = { ...commonFields };
       if (isAdmin && logTargetUserId) {
         updatePayload.user_id = targetId;
         updatePayload.user_name = inspectorName;
@@ -687,26 +905,33 @@ export default function App() {
 
       const { error } = await supabase.from('daily_logs').update(updatePayload).eq('id', editingLogId);
 
-      if (error) alert('Error al actualizar: ' + error.message);
+      if (error) alert('Error al actualizar: ' + error.message + missingColumnHint(error));
       else {
+        if (logLinkedTaskId && logLinkedTaskId !== logOriginalLinkedTaskId) {
+          await closeTaskFromLog(logLinkedTaskId, logDate, targetId, inspectorName, logActivities.trim());
+          loadTasks();
+        }
         setShowLogModal(false);
         setEditingLogId(null);
         loadDailyLogs();
       }
     } else {
-      const { error } = await supabase.from('daily_logs').insert({
-        user_id: targetId,
+      const insertPayload = {
+        ...commonFields,
+        user_id: targetId,           // quién realizó la actividad
         user_name: inspectorName,
-        log_date: logDate,
-        rig_id: logRigId,
-        rig_name: rigName,
-        activity_type: logActivityType,
-        activities: logActivities.trim(),
-        pending_notes: logPending.trim()
-      });
+        created_by_id: session.user.id,  // quién la cargó en la app (punto 10)
+        created_by_name: currentUserProfile?.full_name || session?.user?.email
+      };
 
-      if (error) alert('Error al guardar actividad: ' + error.message);
+      const { error } = await supabase.from('daily_logs').insert(insertPayload);
+
+      if (error) alert('Error al guardar actividad: ' + error.message + missingColumnHint(error));
       else {
+        if (logLinkedTaskId) {
+          await closeTaskFromLog(logLinkedTaskId, logDate, targetId, inspectorName, logActivities.trim());
+          loadTasks();
+        }
         setShowLogModal(false);
         loadDailyLogs();
       }
@@ -843,6 +1068,60 @@ export default function App() {
     loadAssets();
   };
 
+  // ACTA DE ENTREGA POR RELEVO: guarda una "foto" del estado de los bienes al momento de entregar
+  const handleCreateHandoff = async (e) => {
+    e.preventDefault();
+    const receiver = profiles.find(p => p.id === handoffToUserId);
+    if (!receiver) {
+      alert('Elegí quién recibe los bienes.');
+      return;
+    }
+    const items = (assets || [])
+      .filter(a => a?.is_delivered !== false)
+      .map(a => ({
+        asset_name: a.asset_name,
+        condition_status: a.condition_status,
+        notes: a.notes || ''
+      }));
+    if (items.length === 0) {
+      alert('No hay bienes marcados para entregar.');
+      return;
+    }
+
+    setHandoffSaving(true);
+    const { error } = await supabase.from('handoff_records').insert({
+      handoff_date: handoffDate,
+      from_user_id: session.user.id,
+      from_name: currentUserProfile?.full_name || session?.user?.email,
+      to_user_id: receiver.id,
+      to_name: receiver.full_name || receiver.email,
+      items,
+      notes: handoffNotes.trim() || null
+    });
+    setHandoffSaving(false);
+
+    if (error) {
+      alert('Error al registrar el acta: ' + error.message + missingColumnHint(error));
+      return;
+    }
+    setShowHandoffForm(false);
+    setHandoffNotes('');
+    loadHandoffRecords();
+  };
+
+  const handleConfirmHandoffReceipt = async (record) => {
+    if (!confirm(`Confirmás que recibiste los ${record.items?.length || 0} bienes en las condiciones indicadas?`)) return;
+    const { error } = await supabase
+      .from('handoff_records')
+      .update({
+        received_at: new Date().toISOString(),
+        received_by_name: currentUserProfile?.full_name || session?.user?.email
+      })
+      .eq('id', record.id);
+    if (error) alert('Error al confirmar la recepción: ' + error.message);
+    else loadHandoffRecords();
+  };
+
   // MODAL GESTIÓN / CIERRE DE TAREA (HABILITADO PARA TODOS)
   const openTaskEditModal = (task) => {
     setSelectedTaskForEdit(task);
@@ -891,6 +1170,7 @@ export default function App() {
   // GESTIÓN DE TURNOS EN DIFUSIONES (USANDO ÍNDICE NUMÉRICO)
   const openShiftModal = (task, shiftIndex = null) => {
     setShiftTask(task);
+    setShiftAlsoTaskIds([]);
     const shiftsList = Array.isArray(task.shifts_data) ? task.shifts_data : [];
 
     if (shiftIndex !== null && shiftsList[shiftIndex]) {
@@ -899,17 +1179,25 @@ export default function App() {
       setShiftName(existingShift.shift_name || 'Turno Mañana / Turno 1');
       setShiftParticipants(existingShift.participants || '');
       setShiftDate(existingShift.date || new Date().toISOString().split('T')[0]);
+      setShiftServices(Array.isArray(existingShift.services)
+        ? existingShift.services
+        : guessServicesFromText(existingShift.participants));
     } else {
       setEditingShiftIndex(null);
       setShiftName('Turno Mañana / Turno 1');
       setShiftParticipants('');
       setShiftDate(new Date().toISOString().split('T')[0]);
+      setShiftServices([]);
     }
   };
 
   const handleSaveShiftEntry = async (e) => {
     e.preventDefault();
     if (!shiftTask || !shiftParticipants.trim()) return;
+    if (OPERATIONAL_SHIFTS.includes(shiftName) && shiftServices.length === 0) {
+      alert('Marcá qué servicio(s) participaron en este turno (CDS y/o SFP).');
+      return;
+    }
 
     const currentShifts = Array.isArray(shiftTask.shifts_data) ? [...shiftTask.shifts_data] : [];
     const trainerName = currentUserProfile?.full_name || session?.user?.email || 'Inspector';
@@ -919,6 +1207,7 @@ export default function App() {
         ...currentShifts[editingShiftIndex],
         id: currentShifts[editingShiftIndex].id || Date.now().toString(),
         shift_name: shiftName,
+        services: shiftServices,
         date: shiftDate,
         participants: shiftParticipants.trim(),
         last_edited_by: trainerName
@@ -927,6 +1216,7 @@ export default function App() {
       const newEntry = {
         id: Date.now().toString(),
         shift_name: shiftName,
+        services: shiftServices,
         date: shiftDate,
         trainer_name: trainerName,
         participants: shiftParticipants.trim()
@@ -934,17 +1224,46 @@ export default function App() {
       currentShifts.push(newEntry);
     }
 
-    const { error } = await supabase.from('tasks').update({
-      shifts_data: currentShifts
-    }).eq('id', shiftTask.id);
+    const mainPayload = buildCampaignUpdate(shiftTask, currentShifts);
+    const { error } = await supabase.from('tasks').update(mainPayload).eq('id', shiftTask.id);
 
     if (error) {
       alert('Error al guardar turno de difusión: ' + error.message);
-    } else {
-      setTasks(tasks.map(t => t.id === shiftTask.id ? { ...t, shifts_data: currentShifts } : t));
-      setShiftTask(null);
-      setEditingShiftIndex(null);
+      return;
     }
+
+    const updatedById = { [shiftTask.id]: mainPayload };
+
+    // Mismo turno registrado también en otras campañas abiertas del equipo (solo en altas, no en ediciones)
+    if (editingShiftIndex === null && shiftAlsoTaskIds.length > 0) {
+      const failed = [];
+      for (const otherId of shiftAlsoTaskIds) {
+        const other = tasks.find(t => t.id === otherId);
+        if (!other) continue;
+        const otherShifts = [
+          ...(Array.isArray(other.shifts_data) ? other.shifts_data : []),
+          {
+            id: `${Date.now()}-${String(otherId).slice(0, 6)}`,
+            shift_name: shiftName,
+            services: shiftServices,
+            date: shiftDate,
+            trainer_name: trainerName,
+            participants: shiftParticipants.trim()
+          }
+        ];
+        const otherPayload = buildCampaignUpdate(other, otherShifts);
+        const { error: otherError } = await supabase.from('tasks').update(otherPayload).eq('id', otherId);
+        if (otherError) failed.push(other.title);
+        else updatedById[otherId] = otherPayload;
+      }
+      if (failed.length) alert('No se pudo registrar el turno en: ' + failed.join(', '));
+    }
+
+    setTasks(tasks.map(t => updatedById[t.id] ? { ...t, ...updatedById[t.id] } : t));
+    setShiftTask(null);
+    setEditingShiftIndex(null);
+    setShiftAlsoTaskIds([]);
+    setShiftServices([]);
   };
 
   const handleDeleteShiftEntry = async (task, indexToDelete) => {
@@ -952,14 +1271,34 @@ export default function App() {
     const currentShifts = Array.isArray(task.shifts_data) ? task.shifts_data : [];
     const updatedShifts = currentShifts.filter((_, idx) => idx !== indexToDelete);
 
-    const { error } = await supabase.from('tasks').update({
-      shifts_data: updatedShifts
-    }).eq('id', task.id);
+    const payload = buildCampaignUpdate(task, updatedShifts);
+    const { error } = await supabase.from('tasks').update(payload).eq('id', task.id);
 
     if (error) {
       alert('Error al eliminar el turno: ' + error.message);
     } else {
-      setTasks(tasks.map(t => t.id === task.id ? { ...t, shifts_data: updatedShifts } : t));
+      setTasks(tasks.map(t => t.id === task.id ? { ...t, ...payload } : t));
+    }
+  };
+
+  // Marca/desmarca un servicio como "aplica en este equipo" para la campaña y recalcula el estado
+  const handleToggleRequiredService = async (task, serviceKey) => {
+    const current = getRequiredServices(task);
+    const next = current.includes(serviceKey) ? current.filter(k => k !== serviceKey) : [...current, serviceKey];
+    if (next.length === 0) {
+      alert('Al menos un servicio tiene que aplicar en el equipo.');
+      return;
+    }
+    const shifts = Array.isArray(task.shifts_data) ? task.shifts_data : [];
+    const payload = { ...buildCampaignUpdate(task, shifts, next), required_services: next };
+    const { error } = await supabase.from('tasks').update(payload).eq('id', task.id);
+    if (error) {
+      const hint = error.message?.includes('required_services')
+        ? '\n\nFalta crear la columna required_services en Supabase (ver supabase/migrations en el repo).'
+        : '';
+      alert('No se pudo actualizar los servicios: ' + error.message + hint);
+    } else {
+      setTasks(tasks.map(t => t.id === task.id ? { ...t, ...payload } : t));
     }
   };
 
@@ -972,7 +1311,8 @@ export default function App() {
   // TRASLADO DE EQUIPO
   const handleOpenMoveModal = () => {
     setMoveRigId(selectedRig === 'ALL' ? rigs[0]?.id : selectedRig);
-    setSelectedTplIds((templates || []).map(t => t.id));
+    // Las campañas viven en la Biblioteca (son persistentes y siguen al equipo), no se recrean al mover
+    setSelectedTplIds((templates || []).filter(t => !(t.stage || '').includes('Campaña')).map(t => t.id));
     setNewLocName('');
     setNewLocDate(new Date().toISOString().split('T')[0]);
     setShowMoveModal(true);
@@ -993,11 +1333,19 @@ export default function App() {
 
     setLoading(true);
 
-    await supabase
+    // Archiva la locación anterior (pasa al Histórico). Si falla, no se crea la nueva
+    // para no dejar el equipo con dos locaciones activas.
+    const { error: archiveError } = await supabase
       .from('rig_locations')
       .update({ is_current: false, end_date: newLocDate })
       .eq('rig_id', targetRigId)
       .eq('is_current', true);
+
+    if (archiveError) {
+      alert('No se pudo archivar la locación anterior: ' + archiveError.message);
+      setLoading(false);
+      return;
+    }
 
     const { data: newLoc, error: locError } = await supabase
       .from('rig_locations')
@@ -1228,7 +1576,13 @@ export default function App() {
   };
 
   const handleDeleteCampaign = async (campId) => {
-    if (!confirm('¿Eliminar esta campaña de la biblioteca?')) return;
+    if (!confirm('¿Eliminar esta campaña de la biblioteca? Las tareas ya asignadas a los equipos y sus turnos registrados se conservan.')) return;
+    // Primero se desvinculan las tareas, así ninguna regla de borrado en cascada puede eliminar los turnos cargados
+    const { error: unlinkError } = await supabase.from('tasks').update({ broadcast_campaign_id: null }).eq('broadcast_campaign_id', campId);
+    if (unlinkError) {
+      alert('No se pudo eliminar la campaña: ' + unlinkError.message);
+      return;
+    }
     await supabase.from('broadcast_campaigns').delete().eq('id', campId);
     loadCampaigns();
   };
@@ -1413,10 +1767,13 @@ export default function App() {
   };
 
   // Métricas de Actividades (Calculadas según displayedGuardiaLogs: Todo el Historial o Período Seleccionado)
-  const activeRigsCount = new Set((tasks || []).map(t => t.rig_locations?.rigs?.id || t.rigs?.id).filter(Boolean)).size || (rigs || []).length;
+  // Equipos activos = equipos de perforación (no bases) con una locación/PAD vigente (punto 11)
+  const activeRigsCount = selectedRig === 'ALL'
+    ? (rigs || []).filter(r => !isBaseRig(r) && activeLocationMap[r.id]).length
+    : ((activeLocationMap[selectedRig] && !isBaseRig((rigs || []).find(r => r.id === selectedRig))) ? 1 : 0);
 
-  const getLogCount = (type) => displayedGuardiaLogs.filter(l => l && l.activity_type === type).length;
-  const dtmCount = new Set(displayedGuardiaLogs.filter(l => l && l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
+  const getLogCount = (type) => displayedGuardiaLogs.filter(l => l && logHasType(l, type)).length;
+  const dtmCount = new Set(displayedGuardiaLogs.filter(l => l && logHasType(l, 'Asistencia a DTM')).map(l => l.log_date)).size;
 
   const uniqueWorkDaysInLogs = new Set(displayedGuardiaLogs.map(l => l.log_date).filter(Boolean)).size;
 
@@ -1461,11 +1818,11 @@ export default function App() {
 
   const uniqueDtmDays = new Set(
     filteredAdminLogs
-      .filter(l => l.activity_type === 'Asistencia a DTM')
+      .filter(l => logHasType(l, 'Asistencia a DTM'))
       .map(l => `${l.log_date}_${l.user_id}`)
   ).size;
 
-  const getAdminCount = (type) => filteredAdminLogs.filter(l => l.activity_type === type).length;
+  const getAdminCount = (type) => filteredAdminLogs.filter(l => logHasType(l, type)).length;
 
   const adminStats = {
     totalWorkDays: groupedDaysArray.length,
@@ -1491,7 +1848,17 @@ export default function App() {
   const completedTasksCount = (tasks || []).filter(t => t && t.status === 'Completada').length;
   const pendingTasksCount = (tasks || []).filter(t => t && t.status !== 'Completada').length;
   const overdueTasksCount = (tasks || []).filter(t => isOverdue(t?.scheduled_date, t?.status)).length;
-  const complianceRate = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
+  // Cumplimiento real (punto 2): solo cuentan las tareas exigibles a hoy
+  // (fecha programada <= hoy) más las que ya se completaron aunque fueran a futuro.
+  const getClosedDate = (t) => t?.closed_work_date || t?.completed_date || null;
+  const exigibleTasks = (tasks || []).filter(t => t && (t.status === 'Completada' || (t.scheduled_date && t.scheduled_date <= today)));
+  const exigibleTasksCount = exigibleTasks.length;
+  const completedExigibleCount = exigibleTasks.filter(t => t.status === 'Completada').length;
+  const completedOnTimeCount = exigibleTasks.filter(t =>
+    t.status === 'Completada' && getClosedDate(t) && t.scheduled_date && getClosedDate(t) <= t.scheduled_date
+  ).length;
+  const complianceRate = exigibleTasksCount > 0 ? Math.round((completedExigibleCount / exigibleTasksCount) * 100) : 0;
+  const onTimeRate = exigibleTasksCount > 0 ? Math.round((completedOnTimeCount / exigibleTasksCount) * 100) : 0;
 
   const filteredTasks = (tasks || []).filter(t => {
     if (!t) return false;
@@ -1556,8 +1923,8 @@ export default function App() {
       const sortedLogsForPdf = [...pdfShiftLogs].sort((a, b) => new Date(a.log_date) - new Date(b.log_date));
       const tableDataLogs = sortedLogsForPdf.map((log) => [
         formatDateDDMMYYYY(log?.log_date),
-        String(log?.rig_name || '-'),
-        String(log?.activity_type || 'Tarea Planificada'),
+        String(getLogRigNames(log).join(' / ') || '-'),
+        String(getLogTypes(log).join(' / ')),
         String(log?.activities || '-'),
         String(log?.pending_notes || 'Sin pendientes')
       ]);
@@ -1661,7 +2028,25 @@ export default function App() {
       doc.text(`${sectionNum}. ACTA DE ENTREGA DE BIENES Y RECURSOS ENTREGADOS (MARBAR S.A.)`, 14, currentY);
       currentY += 3;
 
-      const deliveredAssets = (assets || []).filter(a => a?.is_delivered !== false);
+      // Si hay un acta registrada en el período, se usa esa (con quién entregó, quién recibió y conformidad).
+      // Si no, se usa el estado actual de los bienes como antes.
+      const periodHandoff = (handoffRecords || []).find(r =>
+        r?.handoff_date && (!shiftStart || r.handoff_date >= shiftStart) && (!shiftEnd || r.handoff_date <= shiftEnd)
+      );
+      if (periodHandoff) {
+        doc.setFontSize(7.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(71, 85, 105);
+        const conformidad = periodHandoff.received_at
+          ? `Recepción confirmada por ${periodHandoff.received_by_name || periodHandoff.to_name} el ${formatDateDDMMYYYY(String(periodHandoff.received_at).split('T')[0])}`
+          : 'Recepción pendiente de confirmación en la app';
+        doc.text(`Acta del ${formatDateDDMMYYYY(periodHandoff.handoff_date)} - Entrega: ${periodHandoff.from_name} / Recibe: ${periodHandoff.to_name} - ${conformidad}`, 14, currentY + 2);
+        currentY += 5;
+      }
+
+      const deliveredAssets = periodHandoff
+        ? (periodHandoff.items || [])
+        : (assets || []).filter(a => a?.is_delivered !== false);
       const tableDataAssets = deliveredAssets.map((a) => [
         String(a?.asset_name || '-'),
         String(a?.condition_status || '-'),
@@ -1699,7 +2084,7 @@ export default function App() {
 
       doc.text('____________________________________', 125, currentY);
       doc.text('Firma Inspector Entrante (Recepción)', 132, currentY + 5);
-      doc.text('MARBAR S.A. - Guardia Entrante', 135, currentY + 9);
+      doc.text(`MARBAR S.A. - ${periodHandoff?.to_name || 'Guardia Entrante'}`, 132, currentY + 9);
 
       const safeStart = String(shiftStart || 'inicio').replace(/[^a-zA-Z0-9]/g, '-');
       const safeEnd = String(shiftEnd || 'fin').replace(/[^a-zA-Z0-9]/g, '-');
@@ -1816,13 +2201,13 @@ export default function App() {
   // PANTALLA PRINCIPAL
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 pb-20">
-      <header className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-20">
+      <header className="bg-slate-900 text-white px-3 py-2.5 sm:p-4 shadow-md sticky top-0 z-20">
         <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-7 h-7 text-amber-500" />
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-bold leading-tight">MARBAR S.A. | HSE Perforación</h1>
+                <h1 className="text-sm sm:text-base font-bold leading-tight">MARBAR S.A. <span className="hidden sm:inline">| HSE Perforación</span><span className="sm:hidden">| HSE</span></h1>
                 <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono">v2.7</span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-400">
@@ -1840,63 +2225,19 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-2">
-            <div className="flex flex-wrap bg-slate-800 p-1 rounded-lg text-xs font-semibold gap-1">
-              <button
-                onClick={() => setActiveTab('operaciones')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md transition ${
-                  activeTab === 'operaciones' ? 'bg-amber-600 text-white' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <ClipboardList className="w-3.5 h-3.5" />
-                Operaciones
-              </button>
-              <button
-                onClick={() => setActiveTab('guardia')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md transition ${
-                  activeTab === 'guardia' ? 'bg-amber-600 text-white' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                Diario (14x14)
-              </button>
-              <button
-                onClick={() => setActiveTab('contingencias')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md transition ${
-                  activeTab === 'contingencias' ? 'bg-amber-600 text-white' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <AlertOctagon className="w-3.5 h-3.5 text-red-400" />
-                Contingencias
-              </button>
-              <button
-                onClick={() => setActiveTab('elementos')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md transition ${
-                  activeTab === 'elementos' ? 'bg-amber-600 text-white' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <Car className="w-3.5 h-3.5 text-blue-400" />
-                Bienes
-              </button>
-              <button
-                onClick={() => setActiveTab('historico')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md transition ${
-                  activeTab === 'historico' ? 'bg-amber-600 text-white' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <Archive className="w-3.5 h-3.5" />
-                Histórico
-              </button>
-              {isAdmin && (
+            <div className="hidden sm:flex flex-wrap bg-slate-800 p-1 rounded-lg text-xs font-semibold gap-1">
+              {navTabs.map(({ key, label, Icon, iconClass }) => (
                 <button
-                  onClick={() => setActiveTab('admin')}
+                  key={key}
+                  onClick={() => setActiveTab(key)}
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md transition ${
-                    activeTab === 'admin' ? 'bg-amber-600 text-white' : 'text-slate-300 hover:text-white'
+                    activeTab === key ? 'bg-amber-600 text-white' : 'text-slate-300 hover:text-white'
                   }`}
                 >
-                  <Settings className="w-3.5 h-3.5" />
-                  Admin
+                  <Icon className={`w-3.5 h-3.5 ${iconClass || ''}`} />
+                  {label}
                 </button>
-              )}
+              ))}
             </div>
 
             <button
@@ -1910,7 +2251,25 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-4 space-y-4">
+      <nav
+        className="sm:hidden fixed bottom-0 inset-x-0 z-30 bg-slate-900 border-t border-slate-700 grid"
+        style={{ gridTemplateColumns: `repeat(${navTabs.length}, minmax(0, 1fr))`, paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        {navTabs.map(({ key, short, Icon, iconClass }) => (
+          <button
+            key={key}
+            onClick={() => { setActiveTab(key); window.scrollTo({ top: 0 }); }}
+            className={`flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold transition ${
+              activeTab === key ? 'text-amber-400' : 'text-slate-400'
+            }`}
+          >
+            <Icon className={`w-5 h-5 ${activeTab === key ? '' : (iconClass || '')}`} />
+            {short}
+          </button>
+        ))}
+      </nav>
+
+      <main className="max-w-5xl mx-auto p-3 sm:p-4 pb-24 sm:pb-4 space-y-4">
         {/* OPERACIONES */}
         {activeTab === 'operaciones' && (
           <>
@@ -1921,7 +2280,7 @@ export default function App() {
                 <span className="text-[10px] text-slate-400 block">en operación</span>
               </div>
               <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Planificadas</span>
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Tareas del Plan</span>
                 <span className="text-xl font-black text-slate-800">{totalTasksCount}</span>
               </div>
               <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
@@ -1936,7 +2295,10 @@ export default function App() {
                 <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider block">Completadas</span>
                 <span className="text-xl font-black text-emerald-700">{completedTasksCount}</span>
               </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm col-span-2 sm:col-span-1">
+              <div
+                className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm col-span-2 sm:col-span-1"
+                title="Completadas sobre tareas exigibles a hoy (programadas hasta hoy o ya cerradas). Las tareas a futuro no restan."
+              >
                 <span className="text-[11px] font-bold text-amber-600 uppercase tracking-wider block">Cumplimiento</span>
                 <div className="flex items-center gap-1">
                   <span className="text-xl font-black text-slate-800">{complianceRate}%</span>
@@ -1944,6 +2306,9 @@ export default function App() {
                     <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${complianceRate}%` }}></div>
                   </div>
                 </div>
+                <span className="text-[10px] text-slate-500 block">
+                  {completedExigibleCount}/{exigibleTasksCount} exigibles · a término {onTimeRate}%
+                </span>
               </div>
             </section>
 
@@ -2239,8 +2604,8 @@ export default function App() {
 
             {/* MODAL GESTIÓN / CIERRE DE TAREA */}
             {selectedTaskForEdit && (
-              <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+                <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[90vh]">
                   <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
                     <div>
                       <h3 className="font-bold text-sm sm:text-base">Gestionar / Modificar Comentario o Estado</h3>
@@ -2350,8 +2715,8 @@ export default function App() {
 
             {/* MODAL ASISTENCIA POR TURNO (NUEVO O EDICIÓN POR ÍNDICE) */}
             {shiftTask && (
-              <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+              <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+                <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto max-h-[92vh] sm:max-h-[90vh]">
                   <div className="bg-purple-900 text-white p-4 flex justify-between items-center">
                     <div>
                       <h3 className="font-bold text-sm sm:text-base">
@@ -2392,6 +2757,31 @@ export default function App() {
                       </div>
                     </div>
 
+                    {OPERATIONAL_SHIFTS.includes(shiftName) && (
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Servicio(s) que participaron en este turno:
+                        </label>
+                        <div className="flex flex-wrap gap-3">
+                          {CAMPAIGN_SERVICES.map(svc => (
+                            <label key={svc.key} className="flex items-center gap-1.5 text-sm text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                              <input
+                                type="checkbox"
+                                checked={shiftServices.includes(svc.key)}
+                                onChange={() => setShiftServices(prev =>
+                                  prev.includes(svc.key) ? prev.filter(k => k !== svc.key) : [...prev, svc.key]
+                                )}
+                              />
+                              {svc.label}
+                            </label>
+                          ))}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Si en la misma charla estuvieron los dos servicios, marcá ambos.
+                        </p>
+                      </div>
+                    )}
+
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
                         Personal Asistente / Participantes / Comentarios del Turno:
@@ -2405,6 +2795,42 @@ export default function App() {
                         className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none"
                       />
                     </div>
+
+                    {editingShiftIndex === null && (() => {
+                      const otherOpenCampaigns = (tasks || []).filter(t =>
+                        t.is_persistent &&
+                        t.id !== shiftTask.id &&
+                        t.status !== 'Completada' &&
+                        getTaskRigId(t) === getTaskRigId(shiftTask)
+                      );
+                      if (otherOpenCampaigns.length === 0) return null;
+                      return (
+                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-1.5">
+                          <p className="text-xs font-bold text-purple-900">
+                            ¿En la misma charla difundiste otras campañas? Registrar también en:
+                          </p>
+                          {otherOpenCampaigns.map(c => (
+                            <label key={c.id} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={shiftAlsoTaskIds.includes(c.id)}
+                                onChange={() => setShiftAlsoTaskIds(prev =>
+                                  prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id]
+                                )}
+                              />
+                              <span className="font-semibold">{c.title}</span>
+                              <span className="text-slate-500">
+                                ({formatCoverage(c)})
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      );
+                    })()}
+
+                    <p className="text-[11px] text-slate-500">
+                      La campaña se cierra sola cuando cada servicio que aplica en el equipo cubrió sus {REQUIRED_SHIFTS} turnos. Mantenimiento y Contratistas quedan registrados pero no cuentan para la cobertura.
+                    </p>
 
                     <div className="flex justify-end gap-2 pt-2 border-t">
                       <button type="button" onClick={() => { setShiftTask(null); setEditingShiftIndex(null); }} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">
@@ -2466,9 +2892,9 @@ export default function App() {
                         )}
                       </div>
 
-                      <div className="flex justify-between items-start gap-2">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
                             <h4 className="font-semibold text-slate-900 text-sm">{task.title}</h4>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
                               task.status === 'Completada' ? 'bg-emerald-100 text-emerald-800' :
@@ -2509,6 +2935,11 @@ export default function App() {
                                 <span className="font-bold text-purple-900 flex items-center gap-1 text-[11px] uppercase tracking-wider">
                                   <Users className="w-3.5 h-3.5 text-purple-600" />
                                   Turnos con Difusión Realizada ({shiftsList.length}):
+                                  <span className={`ml-1 normal-case tracking-normal px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                                    getCampaignCoverage(task).complete ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-purple-800 border border-purple-300'
+                                  }`}>
+                                    Cobertura {formatCoverage(task)}
+                                  </span>
                                 </span>
                                 <button
                                   type="button"
@@ -2519,6 +2950,20 @@ export default function App() {
                                 </button>
                               </div>
 
+                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-purple-900">
+                                <span className="font-semibold">Servicios que aplican en este equipo:</span>
+                                {CAMPAIGN_SERVICES.map(svc => (
+                                  <label key={svc.key} className="flex items-center gap-1 cursor-pointer bg-white px-1.5 py-0.5 rounded border border-purple-200">
+                                    <input
+                                      type="checkbox"
+                                      checked={getRequiredServices(task).includes(svc.key)}
+                                      onChange={() => handleToggleRequiredService(task, svc.key)}
+                                    />
+                                    {svc.key}
+                                  </label>
+                                ))}
+                              </div>
+
                               {shiftsList.length === 0 ? (
                                 <p className="text-[11px] text-purple-600 italic">No se han registrado turnos aún.</p>
                               ) : (
@@ -2526,7 +2971,18 @@ export default function App() {
                                   {shiftsList.map((s, sIdx) => (
                                     <div key={sIdx} className="bg-white p-2.5 rounded-lg border border-purple-200 text-[11px] shadow-2xs">
                                       <div className="flex flex-wrap justify-between items-center gap-2 font-semibold text-slate-800 border-b border-slate-100 pb-1 mb-1">
-                                        <span>👥 {s.shift_name} ({formatDateDDMMYYYY(s.date)})</span>
+                                        <span>
+                                          👥 {s.shift_name} ({formatDateDDMMYYYY(s.date)})
+                                          {Array.isArray(s.services) && s.services.length > 0 ? (
+                                            <span className="ml-1.5 bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded text-[10px] font-black">
+                                              {s.services.join(' + ')}
+                                            </span>
+                                          ) : OPERATIONAL_SHIFTS.includes(s.shift_name) && (
+                                            <span className="ml-1.5 bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] font-bold" title="Editá el turno para indicar CDS y/o SFP; mientras tanto no suma cobertura">
+                                              ⚠️ sin servicio
+                                            </span>
+                                          )}
+                                        </span>
                                         <div className="flex items-center gap-1.5">
                                           <span className="text-slate-500 text-[10px]">
                                             Por: {s.trainer_name} {s.last_edited_by ? `(Editado por ${s.last_edited_by})` : ''}
@@ -2626,7 +3082,7 @@ export default function App() {
                 </span>
               </div>
               <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Planificadas</span>
+                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Act. Planificadas</span>
                 <span className="text-xl font-black text-emerald-950">{activityStats.plan}</span>
                 <span className="text-[9px] text-emerald-700 block">actividades</span>
               </div>
@@ -2884,15 +3340,29 @@ export default function App() {
                         <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
                           📅 {formatDateDDMMYYYY(log?.log_date)}
                         </span>
-                        <span className="text-xs bg-slate-900 text-white font-bold px-2 py-0.5 rounded">
-                          🚜 {log?.rig_name}
-                        </span>
-                        <span className="text-xs bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">
-                          🏷️ {log?.activity_type || 'Tarea Planificada'}
-                        </span>
+                        {getLogRigNames(log).map((name) => (
+                          <span key={name} className="text-xs bg-slate-900 text-white font-bold px-2 py-0.5 rounded">
+                            🚜 {name}
+                          </span>
+                        ))}
+                        {getLogTypes(log).map((t) => (
+                          <span key={t} className="text-xs bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">
+                            🏷️ {t}
+                          </span>
+                        ))}
+                        {log?.linked_task_id && (
+                          <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded">
+                            🔗 Cerró tarea del plan
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-slate-400">Por: <strong>{log?.user_name}</strong></span>
+                        <span className="text-[11px] text-slate-400 text-right">
+                          Por: <strong>{log?.user_name}</strong>
+                          {log?.created_by_id && log.created_by_id !== log.user_id && (
+                            <span className="block text-[10px]">Cargado por: {log.created_by_name}</span>
+                          )}
+                        </span>
                         <button onClick={() => openEditLogModal(log)} className="text-slate-400 hover:text-amber-600 p-1" title="Editar actividad">
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
@@ -3133,14 +3603,85 @@ export default function App() {
                 </p>
               </div>
 
-              <button
-                onClick={() => setShowAssetModal(true)}
-                className="flex items-center gap-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-3.5 rounded-lg transition shadow-sm"
-              >
-                <Plus className="w-4 h-4" />
-                + Agregar Recurso
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => { setShowHandoffForm(true); setHandoffDate(new Date().toISOString().split('T')[0]); }}
+                  className="flex items-center gap-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3.5 rounded-lg transition shadow-sm"
+                >
+                  <FileDown className="w-4 h-4" />
+                  Registrar entrega de relevo
+                </button>
+                <button
+                  onClick={() => setShowAssetModal(true)}
+                  className="flex items-center gap-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-3.5 rounded-lg transition shadow-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  Agregar Recurso
+                </button>
+              </div>
             </div>
+
+            {showHandoffForm && (
+              <form onSubmit={handleCreateHandoff} className="bg-white p-5 rounded-xl shadow-lg border-2 border-blue-500 space-y-3">
+                <h3 className="text-sm font-bold text-slate-800">Acta de entrega de relevo</h3>
+                <p className="text-xs text-slate-500">
+                  Se guarda el estado actual de los {(assets || []).filter(a => a?.is_delivered !== false).length} bienes marcados "Se entrega en relevo". Revisá condición y observaciones antes de registrar.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Entrega:</label>
+                    <input
+                      type="text"
+                      disabled
+                      value={currentUserProfile?.full_name || session?.user?.email || ''}
+                      className="w-full text-sm p-2 border border-slate-200 rounded-lg bg-slate-100 text-slate-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Recibe:</label>
+                    <select
+                      value={handoffToUserId}
+                      onChange={(e) => setHandoffToUserId(e.target.value)}
+                      required
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white"
+                    >
+                      <option value="">Elegí el inspector entrante…</option>
+                      {(profiles || []).filter(p => p.id !== session?.user?.id).map(p => (
+                        <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha de entrega:</label>
+                    <input
+                      type="date"
+                      value={handoffDate}
+                      onChange={(e) => setHandoffDate(e.target.value)}
+                      required
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Observaciones generales (opcional):</label>
+                    <input
+                      type="text"
+                      value={handoffNotes}
+                      onChange={(e) => setHandoffNotes(e.target.value)}
+                      placeholder="Ej: se entrega en Base Neuquén"
+                      className="w-full text-sm p-2 border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button type="button" onClick={() => setShowHandoffForm(false)} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">
+                    Cancelar
+                  </button>
+                  <button type="submit" disabled={handoffSaving} className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition disabled:opacity-60">
+                    {handoffSaving ? 'Guardando…' : 'Registrar acta'}
+                  </button>
+                </div>
+              </form>
+            )}
 
             {showAssetModal && (
               <form onSubmit={handleSaveAsset} className="bg-white p-5 rounded-xl shadow-lg border-2 border-blue-500 space-y-3">
@@ -3234,8 +3775,13 @@ export default function App() {
                     </label>
                     <input
                       type="text"
-                      value={asset.notes || ''}
-                      onChange={(e) => handleUpdateAssetStatus(asset.id, asset.condition_status, e.target.value)}
+                      key={`${asset.id}-${asset.updated_at || ''}`}
+                      defaultValue={asset.notes || ''}
+                      onBlur={(e) => {
+                        if (e.target.value !== (asset.notes || '')) {
+                          handleUpdateAssetStatus(asset.id, asset.condition_status, e.target.value);
+                        }
+                      }}
                       placeholder="Sin observaciones..."
                       className="w-full text-xs p-2 border border-slate-200 rounded-lg bg-slate-50"
                     />
@@ -3243,6 +3789,60 @@ export default function App() {
                 </div>
               ))}
             </div>
+
+            <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-2">
+              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                <ClipboardList className="w-4 h-4 text-blue-600" />
+                Historial de actas de entrega ({handoffRecords.length})
+              </h3>
+              {handoffRecords.length === 0 ? (
+                <p className="text-xs text-slate-400 py-3 text-center">Todavía no hay actas registradas.</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {handoffRecords.map((r) => {
+                    const canConfirm = !r.received_at && (r.to_user_id === session?.user?.id || isAdmin);
+                    return (
+                      <details key={r.id} className="py-2.5">
+                        <summary className="flex flex-wrap items-center justify-between gap-2 cursor-pointer list-none">
+                          <span className="text-xs text-slate-800">
+                            <strong>📅 {formatDateDDMMYYYY(r.handoff_date)}</strong> · {r.from_name} ➜ {r.to_name}
+                            <span className="text-slate-500"> · {(r.items || []).length} bienes</span>
+                          </span>
+                          {r.received_at ? (
+                            <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                              ✅ Recibido {formatDateDDMMYYYY(String(r.received_at).split('T')[0])}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                              ⏳ Pendiente de conformidad
+                            </span>
+                          )}
+                        </summary>
+                        <div className="mt-2 space-y-1.5">
+                          {(r.items || []).map((it, idx) => (
+                            <div key={idx} className="text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                              <strong className="text-slate-800">{it.asset_name}</strong>
+                              <span className="text-slate-500"> — {it.condition_status}</span>
+                              {it.notes && <span className="block text-slate-600">{it.notes}</span>}
+                            </div>
+                          ))}
+                          {r.notes && <p className="text-[11px] text-slate-600 italic">Obs.: {r.notes}</p>}
+                          {canConfirm && (
+                            <button
+                              type="button"
+                              onClick={() => handleConfirmHandoffReceipt(r)}
+                              className="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg"
+                            >
+                              Confirmar recepción
+                            </button>
+                          )}
+                        </div>
+                      </details>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </div>
         )}
 
@@ -3288,6 +3888,28 @@ export default function App() {
                     ))}
                   </select>
 
+                  {(() => {
+                    const planTasks = (historyTasks || []).filter(t => !t.is_persistent);
+                    const done = planTasks.filter(t => t.status === 'Completada').length;
+                    const pct = planTasks.length ? Math.round((done / planTasks.length) * 100) : 0;
+                    return (
+                      <div className="grid grid-cols-3 gap-2 pt-1">
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-center">
+                          <span className="block text-[10px] font-bold text-slate-500 uppercase">Tareas del plan</span>
+                          <span className="text-lg font-black text-slate-800">{planTasks.length}</span>
+                        </div>
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-center">
+                          <span className="block text-[10px] font-bold text-emerald-700 uppercase">Realizadas</span>
+                          <span className="text-lg font-black text-emerald-700">{done}</span>
+                        </div>
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-center">
+                          <span className="block text-[10px] font-bold text-amber-700 uppercase">Cumplimiento</span>
+                          <span className="text-lg font-black text-amber-700">{pct}%</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   <div className="divide-y divide-slate-100 pt-3">
                     <h3 className="text-xs font-bold text-slate-600 uppercase mb-2">Detalle de Actividades</h3>
                     {(historyTasks || []).map((t) => (
@@ -3303,10 +3925,16 @@ export default function App() {
                             <p className="text-slate-600 italic mt-0.5">"{t.comments}"</p>
                           )}
                         </div>
-                        <span className={`px-2 py-0.5 rounded font-bold ${
-                          t.status === 'Completada' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                        <span className={`px-2 py-0.5 rounded font-bold shrink-0 ml-2 ${
+                          t.status === 'Completada' ? 'bg-emerald-100 text-emerald-700' :
+                          t.is_persistent ? 'bg-purple-100 text-purple-700' :
+                          'bg-red-100 text-red-700'
                         }`}>
-                          {t.status}
+                          {t.status === 'Completada'
+                            ? 'Completada'
+                            : t.is_persistent
+                              ? 'Campaña (sigue abierta)'
+                              : 'No realizada (pozo cerrado)'}
                         </span>
                       </div>
                     ))}
@@ -3448,6 +4076,11 @@ export default function App() {
                         <span className="text-[10px] text-purple-700 font-semibold bg-purple-50 px-2 py-0.5 rounded border border-purple-200 inline-block mt-1">
                           📅 Fecha Límite: {formatDateDDMMYYYY(camp.target_date)}
                         </span>
+                        {campaignStats[camp.id] && (
+                          <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-block mt-1 ml-1.5">
+                            ✅ {campaignStats[camp.id].done}/{campaignStats[camp.id].total} equipos completados
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-1.5">
@@ -3550,9 +4183,9 @@ export default function App() {
                 </div>
 
                 <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Planificadas</span>
+                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Act. Planificadas</span>
                   <span className="text-xl font-black text-emerald-900">{adminStats.plan}</span>
-                  <span className="text-[9px] text-emerald-700 block mt-0.5">completadas</span>
+                  <span className="text-[9px] text-emerald-700 block mt-0.5">registradas en diario</span>
                 </div>
 
                 <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
@@ -3643,11 +4276,14 @@ export default function App() {
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="flex items-center gap-2">
                                   <span className="bg-blue-50 text-blue-800 font-bold px-2 py-0.5 rounded border border-blue-200">
-                                    🏷️ {act.activity_type}
+                                    🏷️ {getLogTypes(act).join(' + ')}
                                   </span>
                                   <span className="bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded">
-                                    🚜 {act.rig_name}
+                                    🚜 {getLogRigNames(act).join(' + ')}
                                   </span>
+                                  {act.created_by_id && act.created_by_id !== act.user_id && (
+                                    <span className="text-[10px] text-slate-500">Cargado por: {act.created_by_name}</span>
+                                  )}
                                 </div>
                                 <button
                                   onClick={() => handleDeleteDailyLog(act.id)}
@@ -3867,8 +4503,8 @@ export default function App() {
 
         {/* MODAL PARA DESCARGAR PDF CON FILTRO DE INSPECTOR Y FECHAS DE PERÍODO */}
         {showPdfModal && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+            <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[90vh]">
               <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
                 <div>
                   <h3 className="font-bold text-sm sm:text-base">Emisión de Relevo y Cambio de Guardia</h3>
@@ -3967,8 +4603,8 @@ export default function App() {
 
         {/* MODAL GLOBAL REGISTRAR / EDITAR CONTINGENCIA */}
         {showIncModal && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+            <div className="bg-white w-full max-w-xl rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[90vh]">
               <div className="bg-red-900 text-white p-4 flex justify-between items-center">
                 <div>
                   <h3 className="font-bold text-sm sm:text-base">
@@ -4059,8 +4695,8 @@ export default function App() {
 
         {/* MODAL GLOBAL REGISTRAR ACTIVIDAD DIARIA */}
         {showLogModal && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+            <div className="bg-white w-full max-w-xl rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[90vh]">
               <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
                 <div>
                   <h3 className="font-bold text-sm sm:text-base">
@@ -4078,7 +4714,7 @@ export default function App() {
                   <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200">
                     <label className="block text-xs font-bold text-amber-950 mb-1 flex items-center gap-1.5">
                       <UserCheck className="w-4 h-4 text-amber-600" />
-                      Inspector asignado a la jornada (Carga Retroactiva / Admin):
+                      Realizada por (inspector de la jornada):
                     </label>
                     <select
                       value={logTargetUserId}
@@ -4092,7 +4728,7 @@ export default function App() {
                       ))}
                     </select>
                     <span className="text-[10px] text-amber-800 block mt-1">
-                      Como administrador puedes asentar días trabajados o diagramas pasados a nombre de cualquier inspector.
+                      Como administrador podés asentar días trabajados a nombre de cualquier inspector. Queda registrado que la cargaste vos.
                     </span>
                   </div>
                 )}
@@ -4112,7 +4748,7 @@ export default function App() {
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Equipo Visitado / Asignado:</label>
                     <select
                       value={logRigId}
-                      onChange={(e) => setLogRigId(e.target.value)}
+                      onChange={(e) => { setLogRigId(e.target.value); setLogLinkedTaskId(''); }}
                       required
                       className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-semibold"
                     >
@@ -4135,6 +4771,85 @@ export default function App() {
                     </select>
                   </div>
                 </div>
+
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Otras actividades en la misma visita (opcional):
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {activityTypes.filter(t => t !== logActivityType).map((t) => {
+                        const on = logExtraTypes.includes(t);
+                        return (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setLogExtraTypes(prev => on ? prev.filter(x => x !== t) : [...prev, t])}
+                            className={`text-[11px] px-2.5 py-1.5 rounded-full border font-semibold transition ${
+                              on ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'
+                            }`}
+                          >
+                            {on ? '✓ ' : '+ '}{t}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <details className="group" open={logExtraRigIds.length > 0}>
+                    <summary className="text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                      ¿Visitaste otro equipo con la misma actividad? {logExtraRigIds.length > 0 && `(${logExtraRigIds.length})`}
+                    </summary>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {(rigs || []).filter(r => r.id !== logRigId).map((r) => {
+                        const on = logExtraRigIds.includes(r.id);
+                        return (
+                          <button
+                            key={r.id}
+                            type="button"
+                            onClick={() => setLogExtraRigIds(prev => on ? prev.filter(x => x !== r.id) : [...prev, r.id])}
+                            className={`text-[11px] px-2.5 py-1.5 rounded-full border font-semibold transition ${
+                              on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-300 hover:border-slate-500'
+                            }`}
+                          >
+                            {on ? '✓ ' : '+ '}{r.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Si en cada equipo hiciste cosas distintas, conviene cargar una entrada por equipo.
+                    </p>
+                  </details>
+                </div>
+
+                {(logRigOpenTasks.length > 0 || logOriginalLinkedTaskId) && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                    <label className="block text-xs font-bold text-emerald-900 mb-1">
+                      🔗 ¿Esta actividad cumple una tarea del plan de este equipo?
+                    </label>
+                    <select
+                      value={logLinkedTaskId}
+                      onChange={(e) => setLogLinkedTaskId(e.target.value)}
+                      className="w-full text-sm p-2 border border-emerald-300 rounded-lg bg-white font-medium"
+                    >
+                      <option value="">No, no cierra ninguna tarea</option>
+                      {logOriginalLinkedTaskId && !logRigOpenTasks.some(t => t.id === logOriginalLinkedTaskId) && (
+                        <option value={logOriginalLinkedTaskId}>✅ Tarea ya vinculada y cerrada</option>
+                      )}
+                      {logRigOpenTasks.map(t => (
+                        <option key={t.id} value={t.id}>
+                          {t.title} — Prog: {formatDateDDMMYYYY(t.scheduled_date)}{t.scheduled_date && t.scheduled_date < new Date().toISOString().split('T')[0] ? ' ⚠️ vencida' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {logLinkedTaskId && logLinkedTaskId !== logOriginalLinkedTaskId && (
+                      <p className="text-[11px] text-emerald-800 mt-1">
+                        Al guardar, la tarea se marca como <strong>Completada</strong> con fecha {formatDateDDMMYYYY(logDate)} y el detalle queda en sus comentarios.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Detalle de la Actividad y Hallazgos:</label>
@@ -4174,8 +4889,8 @@ export default function App() {
 
         {/* MODAL REASIGNAR CAMPAÑA */}
         {reassignCampaignModal && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-purple-200 overflow-hidden">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+            <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl border border-purple-200 overflow-y-auto max-h-[92vh] sm:max-h-[90vh]">
               <div className="bg-purple-950 text-white p-4 flex justify-between items-center">
                 <div>
                   <h3 className="font-bold text-sm">Asignar Difusión a Equipos</h3>
@@ -4256,8 +4971,8 @@ export default function App() {
 
         {/* MODAL ASIGNAR TAREA CATÁLOGO */}
         {assignTplModal && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+            <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto max-h-[92vh] sm:max-h-[90vh]">
               <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
                 <div>
                   <h3 className="font-bold text-sm">Asignar Tarea a Equipos en Operación</h3>
