@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+/* Celular: campos a 16px para que iPhone/Android no hagan zoom al tocar un campo,
+   y botones/tildes un poco más grandes para usar con el dedo */
+@media (max-width: 640px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  input[type="checkbox"] {
+    width: 1.1rem;
+    height: 1.1rem;
+  }
+}
