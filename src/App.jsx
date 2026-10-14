@@ -48,7 +48,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [filterStatus, setFilterStatus] = useState('Pendientes');
 
-  // Período de Guardia (14x14) y Filtro de Inspector para Diario / Relevo PDF
+  // Período de Guardia (14x14), Modo de Vista (Historial vs Período) y Filtro de Inspector
+  const [shiftViewMode, setShiftViewMode] = useState('PERIODO'); // 'PERIODO' o 'HISTORIAL'
   const [shiftStart, setShiftStart] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 13);
@@ -598,8 +599,21 @@ export default function App() {
     return Object.values(stats);
   }, [filteredIncidents, rigs]);
 
-  // FILTRADO DEL DIARIO (14x14) Y DEL RELEVO PDF POR FECHA E INSPECTOR
-  const shiftFilteredLogs = useMemo(() => {
+  // 1. LISTA PARA EL TABLERO DEL DIARIO (RESPETA SI EL USUARIO ELIGE "TODO EL HISTORIAL" O "PERÍODO SELECCIONADO")
+  const displayedGuardiaLogs = useMemo(() => {
+    return (dailyLogs || []).filter((log) => {
+      if (!log || !log.log_date) return false;
+      if (shiftInspectorFilter !== 'ALL' && log.user_id !== shiftInspectorFilter) return false;
+      if (shiftViewMode === 'PERIODO') {
+        if (shiftStart && log.log_date < shiftStart) return false;
+        if (shiftEnd && log.log_date > shiftEnd) return false;
+      }
+      return true;
+    });
+  }, [dailyLogs, shiftStart, shiftEnd, shiftInspectorFilter, shiftViewMode]);
+
+  // 2. LISTA EXCLUSIVA PARA EL PDF DE RELEVO (SIEMPRE ACOTADA AL PERÍODO DE CAMBIO DE GUARDIA E INSPECTOR)
+  const pdfShiftLogs = useMemo(() => {
     return (dailyLogs || []).filter((log) => {
       if (!log || !log.log_date) return false;
       if (shiftStart && log.log_date < shiftStart) return false;
@@ -609,7 +623,7 @@ export default function App() {
     });
   }, [dailyLogs, shiftStart, shiftEnd, shiftInspectorFilter]);
 
-  // FILTRADO DE CONTINGENCIAS PARA EL PERÍODO DE CAMBIO DE GUARDIA (PDF)
+  // 3. CONTINGENCIAS EXCLUSIVAS DEL PERÍODO DE CAMBIO DE GUARDIA (PARA EL PDF)
   const shiftFilteredIncidents = useMemo(() => {
     return (incidents || []).filter((inc) => {
       if (!inc || !inc.event_date) return false;
@@ -1398,13 +1412,13 @@ export default function App() {
     if (selectedRig === rigId) setSelectedRig('ALL');
   };
 
-  // Métricas de Actividades (Basadas en los filtros activos del Diario 14x14)
+  // Métricas de Actividades (Calculadas según displayedGuardiaLogs: Todo el Historial o Período Seleccionado)
   const activeRigsCount = new Set((tasks || []).map(t => t.rig_locations?.rigs?.id || t.rigs?.id).filter(Boolean)).size || (rigs || []).length;
 
-  const getLogCount = (type) => shiftFilteredLogs.filter(l => l && l.activity_type === type).length;
-  const dtmCount = new Set(shiftFilteredLogs.filter(l => l && l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
+  const getLogCount = (type) => displayedGuardiaLogs.filter(l => l && l.activity_type === type).length;
+  const dtmCount = new Set(displayedGuardiaLogs.filter(l => l && l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
 
-  const uniqueWorkDaysInLogs = new Set(shiftFilteredLogs.map(l => l.log_date).filter(Boolean)).size;
+  const uniqueWorkDaysInLogs = new Set(displayedGuardiaLogs.map(l => l.log_date).filter(Boolean)).size;
 
   const activityStats = {
     dtm: dtmCount,
@@ -1492,7 +1506,7 @@ export default function App() {
     return new Date(a.scheduled_date || '1970-01-01') - new Date(b.scheduled_date || '1970-01-01');
   });
 
-  // GENERADOR PDF RELEVO (FILTRADO POR FECHAS E INSPECTOR SELECCIONADO)
+  // GENERADOR PDF RELEVO (FILTRADO POR FECHAS DE CAMBIO DE GUARDIA E INSPECTOR)
   const executeExportPDF = async () => {
     setPdfGenerating(true);
     try {
@@ -1539,7 +1553,7 @@ export default function App() {
       doc.text('1. ACTIVIDADES DIARIAS Y GESTIÓN EN CAMPO (PERÍODO SELECCIONADO)', 14, currentY);
       currentY += 3;
 
-      const sortedLogsForPdf = [...shiftFilteredLogs].sort((a, b) => new Date(a.log_date) - new Date(b.log_date));
+      const sortedLogsForPdf = [...pdfShiftLogs].sort((a, b) => new Date(a.log_date) - new Date(b.log_date));
       const tableDataLogs = sortedLogsForPdf.map((log) => [
         formatDateDDMMYYYY(log?.log_date),
         String(log?.rig_name || '-'),
@@ -1809,7 +1823,7 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-bold leading-tight">MARBAR S.A. | HSE Perforación</h1>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono">v2.6</span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono">v2.7</span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span className="flex items-center gap-1 text-slate-300 font-medium">
@@ -2602,11 +2616,14 @@ export default function App() {
         {/* DIARIO DE GUARDIA (14x14) */}
         {activeTab === 'guardia' && (
           <div className="space-y-4">
+            {/* TARJETAS DE CONTEO (SE ACTUALIZAN SEGÚN MODO "PERÍODO" O "HISTORIAL COMPLETO") */}
             <section className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
               <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
                 <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Días en DTM</span>
                 <span className="text-xl font-black text-amber-950">{activityStats.dtm}</span>
-                <span className="text-[9px] text-amber-700 block">en el período</span>
+                <span className="text-[9px] text-amber-700 block">
+                  {shiftViewMode === 'HISTORIAL' ? 'histórico total' : 'en el período'}
+                </span>
               </div>
               <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
                 <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Planificadas</span>
@@ -2661,7 +2678,9 @@ export default function App() {
               <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-sm">
                 <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Días en Campo</span>
                 <span className="text-xl font-black">{uniqueWorkDaysInLogs}</span>
-                <span className="text-[9px] text-slate-400 block">en el período</span>
+                <span className="text-[9px] text-slate-400 block">
+                  {shiftViewMode === 'HISTORIAL' ? 'jornadas históricas' : 'en el período'}
+                </span>
               </div>
             </section>
 
@@ -2720,7 +2739,7 @@ export default function App() {
               </div>
             </section>
 
-            {/* PANEL DE FILTROS DEL DIARIO Y DESCARGA DE RELEVO */}
+            {/* PANEL DE CONTROL Y FILTROS DEL DIARIO (CON BOTÓN DE HISTORIAL COMPLETO VS PERÍODO) */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -2728,7 +2747,7 @@ export default function App() {
                     Diario de Guardia (Diagrama 14x14) - MARBAR S.A.
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Filtra por inspector y fechas de diagrama para visualizar y descargar el relevo exacto.
+                    Alterna entre ver el período seleccionado o todo el historial completo de actividades cargadas.
                   </p>
                 </div>
 
@@ -2750,8 +2769,43 @@ export default function App() {
                 </div>
               </div>
 
-              {/* BARRA DE FILTROS: INSPECTOR, FECHA INGRESO Y FECHA EGRESO */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-100 text-xs bg-slate-50 p-3 rounded-lg">
+              {/* SELECTOR DE MODO: PERÍODO SELECCIONADO VS TODO EL HISTORIAL */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600 uppercase">Modo de Visualización:</span>
+                  <div className="inline-flex bg-slate-200 p-1 rounded-lg text-xs font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setShiftViewMode('PERIODO')}
+                      className={`px-3 py-1.5 rounded-md transition flex items-center gap-1.5 ${
+                        shiftViewMode === 'PERIODO'
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      📅 Período Seleccionado (14x14)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShiftViewMode('HISTORIAL')}
+                      className={`px-3 py-1.5 rounded-md transition flex items-center gap-1.5 ${
+                        shiftViewMode === 'HISTORIAL'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      📚 Todo el Historial Cargado ({dailyLogs.length})
+                    </button>
+                  </div>
+                </div>
+
+                <span className="text-xs font-semibold text-slate-500">
+                  Mostrando <strong className="text-slate-900">{displayedGuardiaLogs.length}</strong> registros
+                </span>
+              </div>
+
+              {/* BARRA DE FILTROS: INSPECTOR Y FECHAS */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs bg-slate-50 p-3 rounded-lg border border-slate-200/80">
                 <div>
                   <label className="font-bold text-slate-700 block mb-1 flex items-center gap-1">
                     <User className="w-3.5 h-3.5 text-amber-600" />
@@ -2769,7 +2823,7 @@ export default function App() {
                   </select>
                 </div>
 
-                <div>
+                <div className={shiftViewMode === 'HISTORIAL' ? 'opacity-50' : ''}>
                   <label className="font-bold text-slate-700 block mb-1 flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5 text-slate-500" />
                     Fecha Ingreso Diagrama:
@@ -2777,12 +2831,15 @@ export default function App() {
                   <input
                     type="date"
                     value={shiftStart}
-                    onChange={(e) => setShiftStart(e.target.value)}
+                    onChange={(e) => {
+                      setShiftStart(e.target.value);
+                      if (shiftViewMode === 'HISTORIAL') setShiftViewMode('PERIODO');
+                    }}
                     className="w-full border border-slate-300 rounded-lg p-1.5 text-xs bg-white font-semibold"
                   />
                 </div>
 
-                <div>
+                <div className={shiftViewMode === 'HISTORIAL' ? 'opacity-50' : ''}>
                   <label className="font-bold text-slate-700 block mb-1 flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5 text-slate-500" />
                     Fecha Egreso Diagrama:
@@ -2790,21 +2847,37 @@ export default function App() {
                   <input
                     type="date"
                     value={shiftEnd}
-                    onChange={(e) => setShiftEnd(e.target.value)}
+                    onChange={(e) => {
+                      setShiftEnd(e.target.value);
+                      if (shiftViewMode === 'HISTORIAL') setShiftViewMode('PERIODO');
+                    }}
                     className="w-full border border-slate-300 rounded-lg p-1.5 text-xs bg-white font-semibold"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Listado Diario Filtrado */}
+            {/* Listado Diario (Según Modo Activo) */}
             <div className="space-y-3">
-              {shiftFilteredLogs.length === 0 ? (
-                <div className="bg-white p-8 rounded-xl text-center text-slate-400 text-sm border border-dashed border-slate-300">
-                  No hay actividades registradas para el período ({formatDateDDMMYYYY(shiftStart)} al {formatDateDDMMYYYY(shiftEnd)}) e inspector seleccionados.
+              {displayedGuardiaLogs.length === 0 ? (
+                <div className="bg-white p-8 rounded-xl text-center text-slate-400 text-sm border border-dashed border-slate-300 space-y-2">
+                  <p>
+                    {shiftViewMode === 'PERIODO'
+                      ? `No hay actividades registradas entre el ${formatDateDDMMYYYY(shiftStart)} y el ${formatDateDDMMYYYY(shiftEnd)}.`
+                      : 'No hay actividades registradas en el historial.'}
+                  </p>
+                  {shiftViewMode === 'PERIODO' && dailyLogs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShiftViewMode('HISTORIAL')}
+                      className="text-xs font-bold text-amber-600 hover:underline"
+                    >
+                      Ver todo el historial cargado ({dailyLogs.length} registros) →
+                    </button>
+                  )}
                 </div>
               ) : (
-                shiftFilteredLogs.map((log) => (
+                displayedGuardiaLogs.map((log) => (
                   <div key={log.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-2">
                     <div className="flex justify-between items-start">
                       <div className="flex flex-wrap items-center gap-2">
@@ -3848,7 +3921,7 @@ export default function App() {
                   </div>
 
                   <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-[11px] font-semibold text-slate-600">
-                    <span>📋 Actividades a imprimir: <strong className="text-emerald-700">{shiftFilteredLogs.length}</strong></span>
+                    <span>📋 Actividades a imprimir: <strong className="text-emerald-700">{pdfShiftLogs.length}</strong></span>
                     <span>🚨 Contingencias en estas fechas: <strong className="text-red-600">{shiftFilteredIncidents.length}</strong></span>
                   </div>
                 </div>
