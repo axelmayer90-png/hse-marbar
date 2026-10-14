@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // Función auxiliar ultra segura para formatear fechas a DD/MM/YYYY
+  // Función auxiliar segura para formatear fechas a DD/MM/YYYY
   const formatDateDDMMYYYY = (dateStr) => {
     if (!dateStr || typeof dateStr !== 'string') return '-';
     try {
@@ -853,17 +853,15 @@ export default function App() {
     setIsSavingTaskModal(false);
   };
 
-  // GESTIÓN DE TURNOS EN DIFUSIONES (NUEVO Y EDICIÓN DISPONIBLE PARA TODOS)
+  // GESTIÓN DE TURNOS EN DIFUSIONES (ACCESIBLE PARA TODOS)
   const openShiftModal = (task, existingShift = null) => {
     setShiftTask(task);
     if (existingShift) {
-      // Modo Edición de Turno Existente
       setEditingShiftId(existingShift.id);
       setShiftName(existingShift.shift_name || 'Turno Mañana / Turno 1');
       setShiftParticipants(existingShift.participants || '');
       setShiftDate(existingShift.date || new Date().toISOString().split('T')[0]);
     } else {
-      // Modo Nuevo Turno
       setEditingShiftId(null);
       setShiftName('Turno Mañana / Turno 1');
       setShiftParticipants('');
@@ -881,7 +879,6 @@ export default function App() {
     let updatedShifts = [];
 
     if (editingShiftId) {
-      // Actualizar turno existente
       updatedShifts = currentShifts.map((s) => {
         if (s.id === editingShiftId) {
           return {
@@ -895,7 +892,6 @@ export default function App() {
         return s;
       });
     } else {
-      // Crear nuevo registro de turno
       const newEntry = {
         id: Date.now().toString(),
         shift_name: shiftName,
@@ -1798,7 +1794,7 @@ export default function App() {
                 <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase ${
                   isAdmin ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-slate-700 text-slate-300'
                 }`}>
-                  {currentUserProfile?.role || 'Inspector'}
+                  {isAdmin ? 'admin' : (currentUserProfile?.role || 'Inspector')}
                 </span>
               </div>
             </div>
@@ -3812,7 +3808,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL GLOBAL REGISTRAR / EDITAR CONTINGENCIA (MODAL FLOTANTE GLOBAL) */}
+        {/* MODAL GLOBAL REGISTRAR / EDITAR CONTINGENCIA */}
         {showIncModal && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
@@ -3875,7 +3871,7 @@ export default function App() {
                     value={incDesc}
                     onChange={(e) => setIncDesc(e.target.value)}
                     required
-                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg focus:ring-1 focus:ring-red-500"
+                    className="w-full text-sm p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-red-500"
                     rows={3}
                   />
                 </div>
