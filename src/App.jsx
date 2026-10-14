@@ -48,13 +48,14 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [filterStatus, setFilterStatus] = useState('Pendientes');
 
-  // Período de Guardia (14x14)
+  // Período de Guardia (14x14) y Filtro de Inspector para Diario / Relevo PDF
   const [shiftStart, setShiftStart] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 13);
     return d.toISOString().split('T')[0];
   });
   const [shiftEnd, setShiftEnd] = useState(() => new Date().toISOString().split('T')[0]);
+  const [shiftInspectorFilter, setShiftInspectorFilter] = useState('ALL');
 
   // Modal Descarga PDF con Comentarios Largos
   const [showPdfModal, setShowPdfModal] = useState(false);
@@ -597,6 +598,27 @@ export default function App() {
     return Object.values(stats);
   }, [filteredIncidents, rigs]);
 
+  // FILTRADO DEL DIARIO (14x14) Y DEL RELEVO PDF POR FECHA E INSPECTOR
+  const shiftFilteredLogs = useMemo(() => {
+    return (dailyLogs || []).filter((log) => {
+      if (!log || !log.log_date) return false;
+      if (shiftStart && log.log_date < shiftStart) return false;
+      if (shiftEnd && log.log_date > shiftEnd) return false;
+      if (shiftInspectorFilter !== 'ALL' && log.user_id !== shiftInspectorFilter) return false;
+      return true;
+    });
+  }, [dailyLogs, shiftStart, shiftEnd, shiftInspectorFilter]);
+
+  // FILTRADO DE CONTINGENCIAS PARA EL PERÍODO DE CAMBIO DE GUARDIA (PDF)
+  const shiftFilteredIncidents = useMemo(() => {
+    return (incidents || []).filter((inc) => {
+      if (!inc || !inc.event_date) return false;
+      if (shiftStart && inc.event_date < shiftStart) return false;
+      if (shiftEnd && inc.event_date > shiftEnd) return false;
+      return true;
+    });
+  }, [incidents, shiftStart, shiftEnd]);
+
   // DIARIO DE ACTIVIDADES
   const openNewLogModal = (presetRigId = null, presetUserId = null) => {
     setEditingLogId(null);
@@ -852,7 +874,7 @@ export default function App() {
     setIsSavingTaskModal(false);
   };
 
-  // GESTIÓN DE TURNOS EN DIFUSIONES (USANDO ÍNDICE NUMÉRICO PARA COMPATIBILIDAD TOTAL)
+  // GESTIÓN DE TURNOS EN DIFUSIONES (USANDO ÍNDICE NUMÉRICO)
   const openShiftModal = (task, shiftIndex = null) => {
     setShiftTask(task);
     const shiftsList = Array.isArray(task.shifts_data) ? task.shifts_data : [];
@@ -879,7 +901,6 @@ export default function App() {
     const trainerName = currentUserProfile?.full_name || session?.user?.email || 'Inspector';
 
     if (editingShiftIndex !== null && currentShifts[editingShiftIndex]) {
-      // Actualizar el turno en esa posición exacta (funciona aunque no tenga ID previo)
       currentShifts[editingShiftIndex] = {
         ...currentShifts[editingShiftIndex],
         id: currentShifts[editingShiftIndex].id || Date.now().toString(),
@@ -889,7 +910,6 @@ export default function App() {
         last_edited_by: trainerName
       };
     } else {
-      // Agregar nuevo turno
       const newEntry = {
         id: Date.now().toString(),
         shift_name: shiftName,
@@ -1220,7 +1240,7 @@ export default function App() {
 
       const locMap = {};
       (activeLocs || []).forEach(loc => {
-        locMap[loc.rig_id] = loc.id;
+        locMap[loc.rig_id] = loc;
       });
 
       const offsetDays = parseInt(assignTplModal.days_offset, 10) || 0;
@@ -1378,13 +1398,13 @@ export default function App() {
     if (selectedRig === rigId) setSelectedRig('ALL');
   };
 
-  // Métricas de Actividades
+  // Métricas de Actividades (Basadas en los filtros activos del Diario 14x14)
   const activeRigsCount = new Set((tasks || []).map(t => t.rig_locations?.rigs?.id || t.rigs?.id).filter(Boolean)).size || (rigs || []).length;
 
-  const getLogCount = (type) => (dailyLogs || []).filter(l => l && l.activity_type === type).length;
-  const dtmCount = new Set((dailyLogs || []).filter(l => l && l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
+  const getLogCount = (type) => shiftFilteredLogs.filter(l => l && l.activity_type === type).length;
+  const dtmCount = new Set(shiftFilteredLogs.filter(l => l && l.activity_type === 'Asistencia a DTM').map(l => l.log_date)).size;
 
-  const uniqueWorkDaysInLogs = new Set((dailyLogs || []).map(l => l.log_date).filter(Boolean)).size;
+  const uniqueWorkDaysInLogs = new Set(shiftFilteredLogs.map(l => l.log_date).filter(Boolean)).size;
 
   const activityStats = {
     dtm: dtmCount,
@@ -1472,12 +1492,15 @@ export default function App() {
     return new Date(a.scheduled_date || '1970-01-01') - new Date(b.scheduled_date || '1970-01-01');
   });
 
-  // GENERADOR PDF RELEVO
+  // GENERADOR PDF RELEVO (FILTRADO POR FECHAS E INSPECTOR SELECCIONADO)
   const executeExportPDF = async () => {
     setPdfGenerating(true);
     try {
       const doc = new jsPDF();
-      const inspectorName = currentUserProfile?.full_name || session?.user?.email || 'Inspector HSE';
+      const chosenInspectorObj = profiles.find(p => p.id === shiftInspectorFilter);
+      const inspectorName = shiftInspectorFilter === 'ALL'
+        ? (currentUserProfile?.full_name || session?.user?.email || 'Consolidado Guardia HSE')
+        : (chosenInspectorObj?.full_name || chosenInspectorObj?.email || 'Inspector HSE');
 
       doc.setFillColor(15, 23, 42);
       doc.rect(0, 0, 210, 36, 'F');
@@ -1509,14 +1532,15 @@ export default function App() {
 
       let currentY = 44;
 
-      // 1. ACTIVIDADES DIARIAS
+      // 1. ACTIVIDADES DIARIAS (SOLO LAS DEL PERÍODO E INSPECTOR FILTRADO)
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
-      doc.text('1. ACTIVIDADES DIARIAS Y GESTIÓN EN CAMPO', 14, currentY);
+      doc.text('1. ACTIVIDADES DIARIAS Y GESTIÓN EN CAMPO (PERÍODO SELECCIONADO)', 14, currentY);
       currentY += 3;
 
-      const tableDataLogs = (dailyLogs || []).map((log) => [
+      const sortedLogsForPdf = [...shiftFilteredLogs].sort((a, b) => new Date(a.log_date) - new Date(b.log_date));
+      const tableDataLogs = sortedLogsForPdf.map((log) => [
         formatDateDDMMYYYY(log?.log_date),
         String(log?.rig_name || '-'),
         String(log?.activity_type || 'Tarea Planificada'),
@@ -1527,7 +1551,7 @@ export default function App() {
       autoTable(doc, {
         startY: currentY,
         head: [['Fecha', 'Equipo', 'Tipo de Actividad', 'Detalle / Hallazgos', 'Novedades Relevo']],
-        body: tableDataLogs.length > 0 ? tableDataLogs : [['-', '-', '-', 'Sin actividades registradas', '-']],
+        body: tableDataLogs.length > 0 ? tableDataLogs : [['-', '-', '-', 'Sin actividades registradas en este período', '-']],
         theme: 'grid',
         headStyles: { fillColor: [101, 163, 13], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
         styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' },
@@ -1546,14 +1570,15 @@ export default function App() {
         currentY = 20;
       }
 
-      // 2. CONTINGENCIAS
+      // 2. CONTINGENCIAS (SOLO LAS OCURRIDAS ENTRE shiftStart Y shiftEnd)
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
-      doc.text('2. CONTINGENCIAS, INCIDENTES Y ACCIDENTES', 14, currentY);
+      doc.text(`2. CONTINGENCIAS DEL PERÍODO (${formatDateDDMMYYYY(shiftStart)} AL ${formatDateDDMMYYYY(shiftEnd)})`, 14, currentY);
       currentY += 3;
 
-      const tableDataInc = (incidents || []).map((inc) => [
+      const sortedIncForPdf = [...shiftFilteredIncidents].sort((a, b) => new Date(a.event_date) - new Date(b.event_date));
+      const tableDataInc = sortedIncForPdf.map((inc) => [
         formatDateDDMMYYYY(inc?.event_date),
         String(inc?.rig_name || '-'),
         String(inc?.event_type || '-'),
@@ -1563,7 +1588,7 @@ export default function App() {
       autoTable(doc, {
         startY: currentY,
         head: [['Fecha', 'Equipo', 'Clasificación del Evento', 'Descripción y Medidas Adoptadas']],
-        body: tableDataInc.length > 0 ? tableDataInc : [['-', '-', 'Sin novedades', 'No se registraron contingencias ni incidentes en el turno']],
+        body: tableDataInc.length > 0 ? tableDataInc : [['-', '-', 'Sin novedades', 'No se registraron contingencias ni incidentes durante este período de guardia']],
         theme: 'grid',
         headStyles: { fillColor: [217, 119, 6], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
         styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' },
@@ -1784,7 +1809,7 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-bold leading-tight">MARBAR S.A. | HSE Perforación</h1>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono">v2.5</span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono">v2.6</span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span className="flex items-center gap-1 text-slate-300 font-medium">
@@ -1926,7 +1951,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* SELECTOR CON NOMBRE, LOCACIÓN Y FECHA DE INICIO */}
               <select
                 value={selectedRig}
                 onChange={(e) => setSelectedRig(e.target.value)}
@@ -1943,7 +1967,6 @@ export default function App() {
                 })}
               </select>
 
-              {/* DETALLES DE POZO, TRAZABILIDAD DE VISITAS Y DÍAS SIN INCIDENTES */}
               {selectedRig !== 'ALL' && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
                   {currentLocation ? (
@@ -2494,7 +2517,6 @@ export default function App() {
                                           <span className="text-slate-500 text-[10px]">
                                             Por: {s.trainer_name} {s.last_edited_by ? `(Editado por ${s.last_edited_by})` : ''}
                                           </span>
-                                          {/* BOTÓN VISIBLE PARA EDITAR TURNO */}
                                           <button
                                             type="button"
                                             onClick={() => openShiftModal(task, sIdx)}
@@ -2504,7 +2526,6 @@ export default function App() {
                                             <Edit2 className="w-2.5 h-2.5" />
                                             Editar
                                           </button>
-                                          {/* BOTÓN PARA ELIMINAR TURNO */}
                                           <button
                                             type="button"
                                             onClick={() => handleDeleteShiftEntry(task, sIdx)}
@@ -2526,7 +2547,6 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* BOTÓN ABIERTO PARA TODOS PARA GESTIONAR O CORREGIR */}
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
@@ -2586,7 +2606,7 @@ export default function App() {
               <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
                 <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Días en DTM</span>
                 <span className="text-xl font-black text-amber-950">{activityStats.dtm}</span>
-                <span className="text-[9px] text-amber-700 block">días con presencia</span>
+                <span className="text-[9px] text-amber-700 block">en el período</span>
               </div>
               <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
                 <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Planificadas</span>
@@ -2641,7 +2661,7 @@ export default function App() {
               <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-sm">
                 <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Días en Campo</span>
                 <span className="text-xl font-black">{uniqueWorkDaysInLogs}</span>
-                <span className="text-[9px] text-slate-400 block">jornadas reales (14x14)</span>
+                <span className="text-[9px] text-slate-400 block">en el período</span>
               </div>
             </section>
 
@@ -2700,6 +2720,7 @@ export default function App() {
               </div>
             </section>
 
+            {/* PANEL DE FILTROS DEL DIARIO Y DESCARGA DE RELEVO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -2707,7 +2728,7 @@ export default function App() {
                     Diario de Guardia (Diagrama 14x14) - MARBAR S.A.
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Carga diaria tipificada: permite registrar visitas y tareas a múltiples equipos en una misma fecha.
+                    Filtra por inspector y fechas de diagrama para visualizar y descargar el relevo exacto.
                   </p>
                 </div>
 
@@ -2729,36 +2750,61 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100 text-xs">
-                <div className="flex items-center gap-2">
-                  <label className="font-semibold text-slate-600">Fecha Ingreso Diagrama:</label>
+              {/* BARRA DE FILTROS: INSPECTOR, FECHA INGRESO Y FECHA EGRESO */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-100 text-xs bg-slate-50 p-3 rounded-lg">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1 flex items-center gap-1">
+                    <User className="w-3.5 h-3.5 text-amber-600" />
+                    Filtrar por Inspector:
+                  </label>
+                  <select
+                    value={shiftInspectorFilter}
+                    onChange={(e) => setShiftInspectorFilter(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg p-2 text-xs bg-white font-semibold text-slate-800"
+                  >
+                    <option value="ALL">🌐 Todos los Inspectores</option>
+                    {profiles.map((p) => (
+                      <option key={p.id} value={p.id}>👤 {p.full_name || p.email}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                    Fecha Ingreso Diagrama:
+                  </label>
                   <input
                     type="date"
                     value={shiftStart}
                     onChange={(e) => setShiftStart(e.target.value)}
-                    className="border border-slate-300 rounded-lg p-1.5 text-xs bg-slate-50 font-semibold"
+                    className="w-full border border-slate-300 rounded-lg p-1.5 text-xs bg-white font-semibold"
                   />
                 </div>
-                <div className="flex items-center gap-2">
-                  <label className="font-semibold text-slate-600">Fecha Egreso Diagrama:</label>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                    Fecha Egreso Diagrama:
+                  </label>
                   <input
                     type="date"
                     value={shiftEnd}
                     onChange={(e) => setShiftEnd(e.target.value)}
-                    className="border border-slate-300 rounded-lg p-1.5 text-xs bg-slate-50 font-semibold"
+                    className="w-full border border-slate-300 rounded-lg p-1.5 text-xs bg-white font-semibold"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Listado Diario */}
+            {/* Listado Diario Filtrado */}
             <div className="space-y-3">
-              {(dailyLogs || []).length === 0 ? (
+              {shiftFilteredLogs.length === 0 ? (
                 <div className="bg-white p-8 rounded-xl text-center text-slate-400 text-sm border border-dashed border-slate-300">
-                  No hay actividades registradas en el diario aún.
+                  No hay actividades registradas para el período ({formatDateDDMMYYYY(shiftStart)} al {formatDateDDMMYYYY(shiftEnd)}) e inspector seleccionados.
                 </div>
               ) : (
-                dailyLogs.map((log) => (
+                shiftFilteredLogs.map((log) => (
                   <div key={log.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-2">
                     <div className="flex justify-between items-start">
                       <div className="flex flex-wrap items-center gap-2">
@@ -3746,14 +3792,14 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL PARA DESCARGAR PDF */}
+        {/* MODAL PARA DESCARGAR PDF CON FILTRO DE INSPECTOR Y FECHAS DE PERÍODO */}
         {showPdfModal && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
               <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
                 <div>
                   <h3 className="font-bold text-sm sm:text-base">Emisión de Relevo y Cambio de Guardia</h3>
-                  <p className="text-xs text-slate-400">MARBAR S.A. - Parte Oficial de Guardia</p>
+                  <p className="text-xs text-slate-400">MARBAR S.A. - Parte Oficial Filtrado por Período e Inspector</p>
                 </div>
                 <button type="button" onClick={() => setShowPdfModal(false)} className="text-slate-400 hover:text-white p-1">
                   <X className="w-5 h-5" />
@@ -3761,9 +3807,50 @@ export default function App() {
               </div>
 
               <div className="p-5 space-y-4 overflow-y-auto">
-                <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-200 text-xs text-amber-900">
-                  <strong className="block mb-0.5">Mensaje para la guardia entrante / Reemplazo:</strong>
-                  Puedes redactar un texto largo con observaciones generales, puntos críticos para los próximos días, recomendaciones de seguridad y estados de pozo. Este mensaje figurará en una sección especial en el PDF descargado.
+                {/* SELECTORES DE FILTRO DENTRO DEL MODAL DE DESCARGA PDF */}
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3 text-xs">
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1 flex items-center gap-1">
+                      <User className="w-3.5 h-3.5 text-amber-600" />
+                      Inspector Saliente a incluir en el PDF:
+                    </label>
+                    <select
+                      value={shiftInspectorFilter}
+                      onChange={(e) => setShiftInspectorFilter(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
+                    >
+                      <option value="ALL">🌐 Todos los Inspectores (Consolidado del período)</option>
+                      {profiles.map((p) => (
+                        <option key={p.id} value={p.id}>👤 {p.full_name || p.email}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Fecha Ingreso:</label>
+                      <input
+                        type="date"
+                        value={shiftStart}
+                        onChange={(e) => setShiftStart(e.target.value)}
+                        className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Fecha Egreso:</label>
+                      <input
+                        type="date"
+                        value={shiftEnd}
+                        onChange={(e) => setShiftEnd(e.target.value)}
+                        className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-[11px] font-semibold text-slate-600">
+                    <span>📋 Actividades a imprimir: <strong className="text-emerald-700">{shiftFilteredLogs.length}</strong></span>
+                    <span>🚨 Contingencias en estas fechas: <strong className="text-red-600">{shiftFilteredIncidents.length}</strong></span>
+                  </div>
                 </div>
 
                 <div>
@@ -3774,11 +3861,11 @@ export default function App() {
                     value={pdfHandoffNotes}
                     onChange={(e) => setPdfHandoffNotes(e.target.value)}
                     placeholder="Escribe aquí las instrucciones de relevo, seguimiento de pozos, tareas pendientes de auditoría o novedades clave a tener en cuenta a futuro..."
-                    rows={6}
+                    rows={5}
                     className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"
                   />
                   <span className="text-[10px] text-slate-400 block mt-1">
-                    * Si dejas el campo vacío, el informe se generará únicamente con las tablas de actividades, contingencias y bienes.
+                    * Solo se incluirán en el PDF las actividades y contingencias ocurridas entre el {formatDateDDMMYYYY(shiftStart)} y el {formatDateDDMMYYYY(shiftEnd)}.
                   </span>
                 </div>
 
