@@ -167,7 +167,7 @@ export function buildInformeVisita(data) {
     y += 7;
   };
   ph();
-  (data.plan.length ? data.plan : [{ accion: 'Sin acciones pendientes.', responsable: '', fecha: '' }]).forEach((p, i) => {
+  (data.plan.length ? data.plan : [{ accion: 'Sin acciones definidas en este informe.', responsable: '', fecha: '' }]).forEach((p, i) => {
     const la = lines(`${i + 1}. ${p.accion}`, cA - 6), lr = lines(p.responsable, cR - 6);
     const h = Math.max(la.length, lr.length, 1) * LH(9) + 5;
     if (y + h > BOTTOM) { newPage(); ph(); }
@@ -185,7 +185,18 @@ export function buildInformeVisita(data) {
   for (let p = 1; p <= total; p++) {
     doc.setPage(p);
     setText(7, 'bold'); doc.text('RG.SGI.27.G - INFORME DE VISITA TÉCNICA', ML, 16);
-    if (data.logo) doc.addImage(data.logo, 'JPEG', PW - MR - 30, 8, 30, 9.2);
+    if (data.logo) {
+      // Logo MARBAR + logo MARBAR Chile (mismo logo con barra azul/roja y "CHILE"), como en el formato original
+      const LW = 21, LHh = LW / 3.32;
+      const xR = PW - MR - LW, xL = xR - LW - 5;
+      doc.addImage(data.logo, 'JPEG', xL, 17.2 - LHh, LW, LHh, 'marbar-logo', 'FAST');
+      doc.addImage(data.logo, 'JPEG', xR, 5.2, LW, LHh, 'marbar-logo', 'FAST');
+      const bx = xR + LW * 0.30, by = 5.2 + LHh + 1.2;
+      doc.setLineWidth(0.45);
+      doc.setDrawColor(0, 57, 166); doc.line(bx, by, bx, by + 2);
+      doc.setDrawColor(213, 43, 30); doc.line(bx, by + 2, bx, by + 4);
+      setText(7.5, 'normal', [40, 40, 40]); doc.text('CHILE', bx + 1.6, by + 3.3);
+    }
     doc.setDrawColor(...GREEN); doc.setLineWidth(0.8); doc.line(ML, 19, PW - MR, 19);
 
     const fy = PH - 28;
