@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from './lib/supabase';
+import { cacheGet, cacheSet, getStoredSession, isOffline } from './lib/offlineCache';
+import InformesModule from './components/InformesModule';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
@@ -7,7 +9,7 @@ import {
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
   BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users,
-  Award, Send, Eye, Clock, UserCheck, ChevronDown
+  Award, Send, Eye, Clock, UserCheck, ChevronDown, FileText, WifiOff
 } from 'lucide-react';
 
 export default function App() {
@@ -38,6 +40,15 @@ export default function App() {
 
   // Navegación
   const [activeTab, setActiveTab] = useState('operaciones');
+
+  // Conexión (para trabajar en locación sin señal)
+  const [isOnline, setIsOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
+  useEffect(() => {
+    const on = () => setIsOnline(true), off = () => setIsOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
 
   // Datos de campo
   const [rigs, setRigs] = useState([]);
@@ -319,7 +330,9 @@ export default function App() {
 
   // 1. SESIÓN
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data }) => {
+      // Sin señal, si el token venció Supabase no puede renovarlo: usamos la sesión guardada
+      const session = data?.session || (isOffline() ? getStoredSession() : null);
       setSession(session);
       if (session) {
         loadUserProfile(session.user.id);
@@ -327,7 +340,8 @@ export default function App() {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!session && event !== 'SIGNED_OUT' && isOffline()) return; // no expulsar al usuario por falta de señal
       setSession(session);
       if (session) {
         loadUserProfile(session.user.id);
@@ -342,8 +356,9 @@ export default function App() {
 
   const loadUserProfile = async (userId) => {
     try {
-      const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-      if (data) setCurrentUserProfile(data);
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+      if (data) { setCurrentUserProfile(data); cacheSet('profile', data); }
+      else if (error) { const c = cacheGet('profile'); if (c && c.id === userId) setCurrentUserProfile(c); }
     } catch (err) {
       console.error(err);
     }
@@ -404,7 +419,9 @@ export default function App() {
   // 2. CARGA DE DATOS GENERALES
   const loadRigs = async () => {
     try {
-      const { data } = await supabase.from('rigs').select('*').order('name');
+      const { data: fresh, error } = await supabase.from('rigs').select('*').order('name');
+      const data = error ? cacheGet('rigs', []) : (fresh || []);
+      if (!error) cacheSet('rigs', data);
       setRigs(data || []);
       if (data && data.length > 0) {
         if (!logRigId) setLogRigId(data[0].id);
@@ -496,7 +513,9 @@ export default function App() {
   const loadAllLocations = async () => {
     if (!session) return;
     try {
-      const { data } = await supabase.from('rig_locations').select('*').order('start_date', { ascending: true });
+      const { data, error } = await supabase.from('rig_locations').select('*').order('start_date', { ascending: true });
+      if (error) { setAllLocations(cacheGet('locations', [])); return; }
+      cacheSet('locations', data || []);
       setAllLocations(data || []);
     } catch (err) {
       console.error(err);
@@ -586,6 +605,7 @@ export default function App() {
   const navTabs = [
     { key: 'operaciones', label: 'Operaciones', short: 'Plan', Icon: ClipboardList },
     { key: 'guardia', label: 'Diario (14x14)', short: 'Diario', Icon: BookOpen },
+    { key: 'informes', label: 'Informes', short: 'Informes', Icon: FileText, iconClass: 'text-emerald-400' },
     { key: 'contingencias', label: 'Contingencias', short: 'Eventos', Icon: AlertOctagon, iconClass: 'text-red-400' },
     { key: 'elementos', label: 'Bienes', short: 'Bienes', Icon: Car, iconClass: 'text-blue-400' },
     { key: 'historico', label: 'Histórico', short: 'Histórico', Icon: Archive },
@@ -2313,6 +2333,26 @@ export default function App() {
       </nav>
 
       <main className="max-w-5xl mx-auto p-3 sm:p-4 pb-24 sm:pb-4 space-y-4">
+        {!isOnline && (
+          <div className="flex items-center gap-2 bg-slate-800 text-slate-100 text-xs font-semibold px-3 py-2 rounded-lg">
+            <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
+            Sin conexión: se muestran los últimos datos guardados. Los informes se pueden cargar y generar igual.
+          </div>
+        )}
+
+        {/* INFORMES DE VISITA TÉCNICA */}
+        {activeTab === 'informes' && (
+          <InformesModule
+            supabase={supabase}
+            session={session}
+            currentUserProfile={currentUserProfile}
+            rigs={rigs}
+            activeLocationMap={activeLocationMap}
+            selectedRig={selectedRig}
+            isBaseRig={isBaseRig}
+          />
+        )}
+
         {/* OPERACIONES */}
         {activeTab === 'operaciones' && (
           <>
