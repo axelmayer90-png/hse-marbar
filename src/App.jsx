@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -7,7 +7,7 @@ import {
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
   BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users,
-  Award, Send, Eye, Clock, UserCheck
+  Award, Send, Eye, Clock, UserCheck, ChevronDown
 } from 'lucide-react';
 
 export default function App() {
@@ -602,6 +602,49 @@ export default function App() {
     });
     return map;
   }, [allLocations]);
+
+  // TIEMPO EN LOCACIÓN → semáforo para anticipar DTM
+  // Mes 1 verde · Mes 2 amarillo · Mes 3 naranja · +90 días rojo · sin locación = En DTM
+  const LOCATION_AGE_STYLES = {
+    m1:   { label: 'Mes 1',      dot: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-800 border-emerald-300', border: 'border-l-emerald-500' },
+    m2:   { label: 'Mes 2',      dot: 'bg-yellow-400',  badge: 'bg-yellow-100 text-yellow-800 border-yellow-300',   border: 'border-l-yellow-400' },
+    m3:   { label: 'Mes 3',      dot: 'bg-orange-500',  badge: 'bg-orange-100 text-orange-800 border-orange-300',   border: 'border-l-orange-500' },
+    m4:   { label: '+90 días',   dot: 'bg-red-500',     badge: 'bg-red-100 text-red-800 border-red-300',            border: 'border-l-red-500' },
+    dtm:  { label: 'En DTM',     dot: 'bg-sky-500',     badge: 'bg-sky-100 text-sky-800 border-sky-300',            border: 'border-l-sky-500' },
+    base: { label: 'Base',       dot: 'bg-slate-400',   badge: 'bg-slate-100 text-slate-600 border-slate-300',      border: 'border-l-slate-300' },
+  };
+
+  const getRigLocationAge = (rig) => {
+    if (!rig) return null;
+    if (isBaseRig(rig)) return { key: 'base', days: null, ...LOCATION_AGE_STYLES.base };
+    const loc = activeLocationMap[rig.id];
+    if (!loc || !loc.start_date) return { key: 'dtm', days: null, ...LOCATION_AGE_STYLES.dtm };
+    const start = new Date(String(loc.start_date).split('T')[0] + 'T00:00:00');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const days = Math.max(0, Math.floor((today - start) / 86400000));
+    const key = days <= 30 ? 'm1' : days <= 60 ? 'm2' : days <= 90 ? 'm3' : 'm4';
+    return { key, days, ...LOCATION_AGE_STYLES[key] };
+  };
+
+  // Selector de equipo desplegable (custom, para poder colorear cada opción)
+  const [rigPickerOpen, setRigPickerOpen] = useState(false);
+  const rigPickerRef = useRef(null);
+  useEffect(() => {
+    if (!rigPickerOpen) return;
+    const onDown = (e) => {
+      if (rigPickerRef.current && !rigPickerRef.current.contains(e.target)) setRigPickerOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setRigPickerOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [rigPickerOpen]);
 
   // DÍAS SIN INCIDENTES
   const calculateDaysWithoutIncidents = () => {
@@ -2330,21 +2373,76 @@ export default function App() {
                 )}
               </div>
 
-              <select
-                value={selectedRig}
-                onChange={(e) => setSelectedRig(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-sm sm:text-base font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-              >
-                <option value="ALL">🌐 Ver Todos los Equipos (Consolidado General)</option>
-                {(rigs || []).map((rig) => {
-                  const loc = activeLocationMap[rig.id];
-                  return (
-                    <option key={rig.id} value={rig.id}>
-                      🚜 {rig.name} {loc ? `| 📍 ${loc.location_name} (desde ${formatDateDDMMYYYY(loc.start_date)})` : '| (Sin locación activa / En DTM)'}
-                    </option>
-                  );
-                })}
-              </select>
+              {(() => {
+                const selRigObj = (rigs || []).find(r => r.id === selectedRig);
+                const selLoc = selRigObj ? activeLocationMap[selRigObj.id] : null;
+                const selAge = selRigObj ? getRigLocationAge(selRigObj) : null;
+                const renderAgeBadge = (age) => age && (
+                  <span className={`shrink-0 inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full border ${age.badge}`}>
+                    <span className={`w-2 h-2 rounded-full ${age.dot}`} />
+                    {age.days !== null ? `${age.days} d · ${age.label}` : age.label}
+                  </span>
+                );
+                return (
+                  <div ref={rigPickerRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setRigPickerOpen(o => !o)}
+                      className={`w-full flex items-center justify-between gap-2 bg-slate-50 border border-slate-300 ${selAge ? `border-l-4 ${selAge.border}` : ''} rounded-lg p-2.5 text-left text-sm sm:text-base font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none`}
+                    >
+                      <span className="truncate">
+                        {selRigObj
+                          ? <>🚜 {selRigObj.name} {selLoc ? `| 📍 ${selLoc.location_name} (desde ${formatDateDDMMYYYY(selLoc.start_date)})` : '| (Sin locación activa / En DTM)'}</>
+                          : '🌐 Ver Todos los Equipos (Consolidado General)'}
+                      </span>
+                      <span className="flex items-center gap-2 shrink-0">
+                        {renderAgeBadge(selAge)}
+                        <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${rigPickerOpen ? 'rotate-180' : ''}`} />
+                      </span>
+                    </button>
+
+                    {rigPickerOpen && (
+                      <div className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-96 overflow-y-auto">
+                        <button
+                          type="button"
+                          onClick={() => { setSelectedRig('ALL'); setRigPickerOpen(false); }}
+                          className={`w-full text-left px-3 py-2.5 text-sm font-semibold hover:bg-slate-50 border-b border-slate-100 ${selectedRig === 'ALL' ? 'bg-amber-50' : ''}`}
+                        >
+                          🌐 Ver Todos los Equipos (Consolidado General)
+                        </button>
+                        {(rigs || []).map((rig) => {
+                          const loc = activeLocationMap[rig.id];
+                          const age = getRigLocationAge(rig);
+                          return (
+                            <button
+                              key={rig.id}
+                              type="button"
+                              onClick={() => { setSelectedRig(rig.id); setRigPickerOpen(false); }}
+                              className={`w-full flex items-center justify-between gap-2 text-left px-3 py-2.5 text-sm border-b border-slate-100 border-l-4 ${age.border} hover:bg-slate-50 ${selectedRig === rig.id ? 'bg-amber-50' : ''}`}
+                            >
+                              <span className="min-w-0">
+                                <span className="font-semibold text-slate-800 block truncate">🚜 {rig.name}</span>
+                                <span className="text-[11px] text-slate-500 block truncate">
+                                  {loc ? `📍 ${loc.location_name} · desde ${formatDateDDMMYYYY(loc.start_date)}` : 'Sin locación activa / En DTM'}
+                                </span>
+                              </span>
+                              {renderAgeBadge(age)}
+                            </button>
+                          );
+                        })}
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 px-3 py-2 bg-slate-50 text-[10px] text-slate-500 font-medium">
+                          {['m1', 'm2', 'm3', 'm4', 'dtm'].map(k => (
+                            <span key={k} className="inline-flex items-center gap-1">
+                              <span className={`w-2 h-2 rounded-full ${LOCATION_AGE_STYLES[k].dot}`} />
+                              {k === 'm1' ? '0–30 d' : k === 'm2' ? '31–60 d' : k === 'm3' ? '61–90 d' : k === 'm4' ? '+90 d (DTM próximo)' : 'En DTM'}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {selectedRig !== 'ALL' && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
