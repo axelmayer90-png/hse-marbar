@@ -40,3 +40,6 @@ create policy "visit_reports_update" on public.visit_reports
   for update to authenticated using (created_by = auth.uid()) with check (created_by = auth.uid());
 
 create index if not exists visit_reports_generated_at_idx on public.visit_reports (generated_at desc);
+
+-- (Agregado) Detalle de los checklists RG.SSA.06 / RG.SSA.07 cargados en cada informe
+alter table public.visit_reports add column if not exists checklists jsonb;
