@@ -303,7 +303,6 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
     if (!r.observaciones.length) p.push('Agregá al menos una observación.');
     r.observaciones.forEach((o, i) => {
       if (!o.texto.trim()) p.push(`La observación ${i + 1} no tiene descripción.`);
-      if (o.estado === 'DESVIO' && !o.accion.trim()) p.push(`El desvío de la observación ${i + 1} no tiene acción recomendada.`);
     });
     return p;
   };
@@ -626,8 +625,8 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
 
             {o.estado === 'DESVIO' && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-2">
-                <span className="text-[11px] font-bold text-red-800 uppercase flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Acción recomendada (pasa al Plan de acciones)</span>
-                <textarea className={input} rows={2} maxLength={800} placeholder="Ej.: Colocar traba tipo R en el pasador de la escalera."
+                <span className="text-[11px] font-bold text-red-800 uppercase flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Acción recomendada <span className="normal-case font-semibold">(opcional · si se completa, pasa al Plan de acciones)</span></span>
+                <textarea className={input} rows={2} maxLength={800} placeholder="Dejar vacío si la acción la define Operaciones."
                   value={o.accion} onChange={e => update(x => { x.observaciones[idx].accion = e.target.value; return x; })} />
                 <div className="grid grid-cols-2 gap-2">
                   <input className={input} placeholder="Responsable" value={o.accionResp}
