@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   FileText, Plus, Trash2, Camera, Image as ImageIcon, ArrowLeft, ArrowUp, ArrowDown,
-  FileDown, Eye, Share2, CheckCircle2, AlertTriangle, WifiOff, Wifi, Cloud, CloudOff, X, Maximize, Minimize,
+  ClipboardCheck, FileDown, Eye, Share2, CheckCircle2, AlertTriangle, WifiOff, Wifi, Cloud, CloudOff, X, Maximize, Minimize,
 } from 'lucide-react';
 import {
   listReports, getReport, saveReport, deleteReport, savePhoto, getPhoto, deletePhoto, newId,
 } from '../lib/informeStore';
 import { prepareSourcePhoto, renderFramedPhoto, blobToDataURL } from '../lib/imageTools';
 import { buildInformeVisita } from '../lib/informePdf';
+import { CHECKLISTS } from '../lib/checklists';
+import { newChecklist, checklistProgress, autoObsText } from '../lib/checklistUtils';
+import ChecklistEditor from './ChecklistEditor';
 
 // ---------- Configuración ----------
 const TIPOS = {
@@ -77,6 +80,7 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
   const [saveState, setSaveState] = useState('saved');
   const [busy, setBusy] = useState('');
   const [pdfResult, setPdfResult] = useState(null); // { url, file, name }
+  const [openChecklist, setOpenChecklist] = useState(null); // id del checklist en pantalla
   const saveTimer = useRef(null);
 
   const userName = currentUserProfile?.full_name || session?.user?.email || '';
@@ -124,7 +128,19 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
         created_by_name: userName,
         generated_at: new Date(r.generatedAt || Date.now()).toISOString(),
       };
-      const { error } = await supabase.from('visit_reports').upsert(payload);
+      if ((r.checklists || []).length) {
+        payload.checklists = r.checklists.map(c => {
+          const def = CHECKLISTS[c.type];
+          const pr = checklistProgress(c, def);
+          return { code: def.code, type: c.type, header: c.header, units: c.units, answers: c.answers, extras: c.extras, total: pr.total, evaluados: pr.done, observados: pr.bad, conteo: pr.count };
+        });
+      }
+      let { error } = await supabase.from('visit_reports').upsert(payload);
+      if (error && payload.checklists && /checklists/i.test(error.message || '')) {
+        // La columna "checklists" todavía no existe: se registra el informe sin el detalle del checklist
+        delete payload.checklists;
+        ({ error } = await supabase.from('visit_reports').upsert(payload));
+      }
       if (!error) await saveReport({ ...r, synced: true });
       else break; // tabla inexistente o sin señal: se reintenta más tarde
     }
@@ -207,6 +223,7 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
     Object.values(thumbs).forEach(u => URL.revokeObjectURL(u));
     setThumbs({});
     setEditing(null);
+    setOpenChecklist(null);
     if (pdfResult?.url) URL.revokeObjectURL(pdfResult.url);
     setPdfResult(null);
     refreshList();
@@ -276,7 +293,61 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
     const o = editing.observaciones.find(x => x.id === obsId);
     if ((o.texto || o.fotos.length) && !window.confirm('¿Eliminar esta observación y sus fotos?')) return;
     for (const f of o.fotos) await deletePhoto(f.id);
-    update(r => { r.observaciones = r.observaciones.filter(x => x.id !== obsId); return r; });
+    update(r => {
+      r.observaciones = r.observaciones.filter(x => x.id !== obsId);
+      // Si venía de un checklist, el ítem vuelve a quedar disponible para "Pasar al informe"
+      (r.checklists || []).forEach(c => Object.values(c.answers).forEach(a => { if (a.obsId === obsId) delete a.obsId; }));
+      return r;
+    });
+  };
+
+  // ---------- Checklists (RG.SSA.06 / RG.SSA.07) ----------
+  const addChecklist = (type) => {
+    const existing = (editing.checklists || []).find(c => c.type === type);
+    if (existing) { setOpenChecklist(existing.id); window.scrollTo({ top: 0 }); return; }
+    const cl = newChecklist(type);
+    update(r => { r.checklists = [...(r.checklists || []), cl]; return r; });
+    setOpenChecklist(cl.id);
+    window.scrollTo({ top: 0 });
+  };
+
+  // Cambios en el checklist + actualización de las observaciones vinculadas que no se editaron a mano
+  const updateChecklist = (clId, fn) => update(r => {
+    const i = r.checklists.findIndex(c => c.id === clId);
+    r.checklists[i] = fn(r.checklists[i]);
+    const cl = r.checklists[i];
+    Object.entries(cl.answers).forEach(([key, a]) => {
+      if (!a.obsId) return;
+      const o = r.observaciones.find(x => x.id === a.obsId);
+      if (!o) { delete a.obsId; return; }
+      const auto = autoObsText(cl, key);
+      if (o.texto === o.autoText && auto !== o.autoText) { o.texto = auto; o.autoText = auto; }
+    });
+    return r;
+  });
+
+  const sendToReport = (clId, key) => update(r => {
+    const cl = r.checklists.find(c => c.id === clId);
+    const a = cl.answers[key];
+    if (!a || (a.obsId && r.observaciones.some(o => o.id === a.obsId))) return r;
+    const texto = autoObsText(cl, key);
+    const obs = { ...emptyObs('SSA'), estado: 'DESVIO', texto, autoText: texto, fromChecklist: { clId, key } };
+    // Si la única observación es la vacía inicial, se reemplaza
+    if (r.observaciones.length === 1 && !r.observaciones[0].texto && !r.observaciones[0].fotos.length) r.observaciones = [];
+    r.observaciones.push(obs);
+    a.obsId = obs.id;
+    return r;
+  });
+
+  const removeChecklist = (clId) => {
+    const cl = editing.checklists.find(c => c.id === clId);
+    if (!window.confirm(`¿Quitar el checklist ${CHECKLISTS[cl.type].code} del informe? Las observaciones que ya pasaste al informe se mantienen.`)) return;
+    update(r => {
+      r.checklists = r.checklists.filter(c => c.id !== clId);
+      r.observaciones.forEach(o => { if (o.fromChecklist?.clId === clId) delete o.fromChecklist; });
+      return r;
+    });
+    setOpenChecklist(null);
   };
 
   const moveObs = (idx, dir) => update(r => {
@@ -338,6 +409,7 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
         resumen: { objetivo: na(r.resumen.objetivo), hallazgos: na(r.resumen.hallazgos), acciones: na(r.resumen.acciones), pendientes: na(r.resumen.pendientes) },
         observaciones,
         plan: buildPlan(r),
+        checklists: (r.checklists || []).map(c => ({ ...c, def: CHECKLISTS[c.type] })),
       });
       const name = fileNameFor(r);
       const blob = doc.output('blob');
@@ -458,6 +530,26 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
     const order = [...r.observaciones.filter(x => x.aspecto === 'CALIDAD'), ...r.observaciones.filter(x => x.aspecto === 'SSA')];
     return order.indexOf(o) + 1;
   };
+  const obsNumberById = (id) => {
+    const o = r.observaciones.find(x => x.id === id);
+    return o ? obsNumber(o) : null;
+  };
+
+  const activeCl = openChecklist && (r.checklists || []).find(c => c.id === openChecklist);
+  if (activeCl) {
+    return (
+      <ChecklistEditor
+        cl={activeCl}
+        def={CHECKLISTS[activeCl.type]}
+        info={r.info}
+        onChange={(fn) => updateChecklist(activeCl.id, fn)}
+        onBack={() => { setOpenChecklist(null); window.scrollTo({ top: 0 }); }}
+        onSendToReport={sendToReport}
+        obsNumberById={obsNumberById}
+        onRemove={() => removeChecklist(activeCl.id)}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -584,6 +676,39 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
         ))}
       </section>
 
+      {/* Checklists de inspección (anexo) */}
+      <section className={`${card} p-4 space-y-3`}>
+        <div>
+          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2"><ClipboardCheck className="w-4 h-4 text-amber-600" /> Checklists de inspección (anexo)</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Se imprimen completos al final del PDF. Los ítems NC / OBS se pueden pasar como observaciones del informe.</p>
+        </div>
+        {(r.checklists || []).map(c => {
+          const def = CHECKLISTS[c.type];
+          const pr = checklistProgress(c, def);
+          return (
+            <button key={c.id} onClick={() => { setOpenChecklist(c.id); window.scrollTo({ top: 0 }); }}
+              className="w-full text-left border border-slate-200 hover:border-amber-400 rounded-lg p-3 flex items-center justify-between gap-2">
+              <span className="min-w-0">
+                <span className="block text-sm font-bold text-slate-800">{def.code} · {def.short}</span>
+                <span className="text-[11px] text-slate-500">{pr.done}/{pr.total} ítems evaluados{pr.bad ? <b className="text-red-700"> · {pr.bad} observado{pr.bad > 1 ? 's' : ''}</b> : ''}</span>
+                <span className="block w-40 h-1.5 bg-slate-200 rounded-full overflow-hidden mt-1">
+                  <span className="block h-full bg-emerald-500" style={{ width: `${pr.total ? (pr.done / pr.total) * 100 : 0}%` }} />
+                </span>
+              </span>
+              <span className="text-xs font-bold text-amber-700 shrink-0">Abrir →</span>
+            </button>
+          );
+        })}
+        <div className="flex flex-wrap gap-2">
+          {Object.values(CHECKLISTS).filter(d => !(r.checklists || []).some(c => c.type === d.type)).map(d => (
+            <button key={d.type} onClick={() => addChecklist(d.type)}
+              className="flex items-center gap-1.5 text-sm font-semibold border border-slate-300 hover:border-amber-500 text-slate-700 rounded-lg px-3 py-2">
+              <Plus className="w-4 h-4" /> {d.short} ({d.code})
+            </button>
+          ))}
+        </div>
+      </section>
+
       {/* 3. Desarrollo */}
       <section className="space-y-3">
         <div className={`${card} overflow-hidden`}>
@@ -594,7 +719,10 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
         {r.observaciones.map((o, idx) => (
           <div key={o.id} className={`${card} p-4 space-y-3 border-l-4 ${o.estado === 'DESVIO' ? 'border-l-red-500' : 'border-l-emerald-500'}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-bold text-slate-800">Obs. {obsNumber(o)}</span>
+              <span className="text-sm font-bold text-slate-800">
+                Obs. {obsNumber(o)}
+                {o.fromChecklist && <span className="ml-2 text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">desde checklist</span>}
+              </span>
               <div className="flex items-center gap-1">
                 <button onClick={() => moveObs(idx, -1)} disabled={idx === 0} className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30" title="Subir"><ArrowUp className="w-4 h-4" /></button>
                 <button onClick={() => moveObs(idx, 1)} disabled={idx === r.observaciones.length - 1} className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30" title="Bajar"><ArrowDown className="w-4 h-4" /></button>
