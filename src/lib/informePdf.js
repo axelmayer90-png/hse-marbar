@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 // Generador RG.SGI.27.G - Informe de visita técnica (jsPDF, sin dependencias de servidor)
 // data: { info:{...}, resumen:{objetivo, hallazgos, acciones, pendientes}, observaciones:[{aspecto, estado, texto, fotos:[{src, caption}] , accion?}], plan:[{accion, responsable, fecha}] , logo }
 
@@ -178,6 +179,107 @@ export function buildInformeVisita(data) {
     lr.forEach((l, k) => doc.text(l, ML + cA + 3, y + 4.5 + k * LH(9)));
     doc.text(p.fecha || '', ML + cA + cR + cF / 2, y + 4.5, { align: 'center' });
     y += h;
+  });
+
+  // ---------- ANEXOS: CHECKLISTS RG.SSA.06 / RG.SSA.07 ----------
+  const checklists = data.checklists || [];
+  const ROMAN = ['I', 'II', 'III', 'IV'];
+  if (checklists.length) {
+    y += 6;
+    ensure(12);
+    setText(8.5, 'bold'); doc.text('Anexos:', ML, y + 3);
+    setText(8.5);
+    checklists.forEach((c, i) => { doc.text(`Anexo ${ROMAN[i]} – ${c.def.code} ${c.def.title}`, ML + 14, y + 3 + i * 4.5); });
+    y += 4 + checklists.length * 4.5;
+  }
+  checklists.forEach((c, ci) => {
+    const def = c.def;
+    newPage();
+    doc.setFillColor(...GREEN); doc.rect(ML, y, CW, 7, 'F');
+    setText(9.5, 'bold', [255, 255, 255]);
+    doc.text(`ANEXO ${ROMAN[ci]} · ${def.code} - ${def.title.toUpperCase()}`, ML + 3, y + 4.8);
+    y += 9.5;
+    setText(7.5, 'normal', [90, 90, 90]); doc.text(def.rev, ML, y + 2); y += 5;
+
+    // Datos generales
+    const hdr = [
+      ['Responsable de la inspección', data.info.responsable || ''],
+      ['Fecha', data.info.fecha || ''],
+      ['Equipo', data.info.equipo || ''],
+      ['Pozo', data.info.pozo || ''],
+      ...def.headerFields.map(f => [f.label, (c.header || {})[f.k] || '']),
+    ];
+    const pairs = [];
+    for (let i = 0; i < hdr.length; i += 2) pairs.push([hdr[i][0], hdr[i][1], hdr[i + 1]?.[0] || '', hdr[i + 1]?.[1] || '']);
+    autoTable(doc, {
+      startY: y, margin: { left: ML, right: MR, top: TOP, bottom: PH - BOTTOM },
+      theme: 'grid', body: pairs,
+      styles: { fontSize: 7.5, cellPadding: 1.4, lineColor: GREY_LINE, lineWidth: 0.2, textColor: TEXT },
+      columnStyles: {
+        0: { fillColor: GREEN, textColor: [255, 255, 255], cellWidth: 36 },
+        1: { fontStyle: 'bold', cellWidth: CW / 2 - 36 },
+        2: { fillColor: GREEN, textColor: [255, 255, 255], cellWidth: 36 },
+        3: { fontStyle: 'bold' },
+      },
+    });
+    y = doc.lastAutoTable.finalY + 4;
+
+    // Resumen de resultados
+    const kindOf = Object.fromEntries(def.scale.map(s => [s.k, s.kind]));
+    let total = 0; const count = {};
+    const body = [];
+    def.sections.forEach(section => {
+      body.push([{ content: section.label.toUpperCase(), colSpan: def.scale.length + 2, styles: { fillColor: [226, 239, 218], fontStyle: 'bold', textColor: [40, 70, 20] } }]);
+      const units = section.repeat ? (c.units[section.id] || []) : [null];
+      if (section.repeat && !units.length) {
+        body.push([{ content: `Sin ${section.repeat.label.toLowerCase()}s cargados en esta inspección.`, colSpan: def.scale.length + 2, styles: { fontStyle: 'italic', textColor: [120, 120, 120] } }]);
+      }
+      units.forEach((u, ui) => {
+        if (u) body.push([{ content: `${section.repeat.label} ${ui + 1}${u.name ? ` – ${u.name}` : ''}`, colSpan: def.scale.length + 2, styles: { fillColor: GREY_BG, fontStyle: 'bold' } }]);
+        section.items.forEach((text, i) => {
+          const a = c.answers[`${section.id}:${u ? u.id : '-'}:${i}`] || {};
+          total++;
+          if (a.v) count[a.v] = (count[a.v] || 0) + 1;
+          body.push([
+            text,
+            ...def.scale.map(s => (a.v === s.k ? { content: 'X', styles: kindOf[s.k] === 'bad' ? { textColor: [185, 28, 28], fontStyle: 'bold' } : { fontStyle: 'bold' } } : '')),
+            (a.c || '').trim(),
+          ]);
+        });
+      });
+    });
+    const evaluated = Object.values(count).reduce((n, v) => n + v, 0);
+    setText(8, 'bold');
+    doc.text(`Resultado: ${def.scale.map(s => `${s.label}: ${count[s.k] || 0}`).join('   ·   ')}   ·   Sin evaluar: ${total - evaluated}   (total ${total} ítems)`, ML, y + 3);
+    y += 5;
+    setText(7, 'normal', [90, 90, 90]); doc.text(`REFERENCIAS:  ${def.references}`, ML, y + 3);
+    y += 5;
+
+    const markW = 9;
+    autoTable(doc, {
+      startY: y, margin: { left: ML, right: MR, top: TOP, bottom: PH - BOTTOM },
+      theme: 'grid',
+      head: [['Ítem', ...def.scale.map(s => s.label), def.commentLabel]],
+      body,
+      showHead: 'everyPage',
+      styles: { fontSize: 7, cellPadding: 1.1, lineColor: GREY_LINE, lineWidth: 0.15, textColor: TEXT, valign: 'middle' },
+      headStyles: { fillColor: [40, 40, 40], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+      columnStyles: {
+        0: { cellWidth: CW - markW * def.scale.length - 48 },
+        ...Object.fromEntries(def.scale.map((_, i) => [i + 1, { cellWidth: markW, halign: 'center' }])),
+        [def.scale.length + 1]: { cellWidth: 48 },
+      },
+    });
+    y = doc.lastAutoTable.finalY + 5;
+
+    (def.extras || []).forEach(x => {
+      const t = ((c.extras || {})[x.k] || '').trim();
+      ensure(12);
+      setText(8.5, 'bold'); doc.text(x.label.toUpperCase(), ML, y + 3); y += 5;
+      setText(8.5);
+      lines(t || 'N/A', CW).forEach(l => { ensure(LH(8.5)); doc.text(l, ML, y + 3); y += LH(8.5); });
+      y += 3;
+    });
   });
 
   // ---------- ENCABEZADO Y PIE EN TODAS LAS PÁGINAS ----------
