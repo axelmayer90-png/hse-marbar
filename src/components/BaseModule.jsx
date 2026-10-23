@@ -6,8 +6,8 @@ import {
   BASES, BASE_FORMS, FORM_ORDER, scaleItems, countIssues, daysUntil, fmtDate, MONTHS,
 } from '../lib/baseForms.js';
 import { buildBasePdf } from '../lib/basePdf.js';
-import { BASE_PLANS } from '../lib/basePlans.js';
-import BasePlanView from './BasePlanView';
+import { BASE_PLANS, symbolDefaults } from '../lib/basePlans.js';
+import BasePlanView, { PlanPicker } from './BasePlanView';
 
 const todayISO = () => {
   const d = new Date();
@@ -219,6 +219,8 @@ export default function BaseModule({ supabase, session, currentUserProfile, isAd
     return (
       <ElementForm
         el={editingEl}
+        plan={BASE_PLANS[editingEl.base || base]}
+        usedSyms={new Set(elements.filter(e => e.base === (editingEl.base || base) && e.active !== false && e.id !== editingEl.id).map(e => e.data?.plan?.sym).filter(Boolean))}
         onCancel={() => setEditingEl(null)}
         onSave={async (el) => { const ok = await saveElement(el); if (ok) setEditingEl(null); }}
         card={card} input={input} label={label}
@@ -504,7 +506,7 @@ export default function BaseModule({ supabase, session, currentUserProfile, isAd
 }
 
 // ======================= Alta / edición de elemento =======================
-function ElementForm({ el, onCancel, onSave, card, input, label }) {
+function ElementForm({ el, plan, usedSyms, onCancel, onSave, card, input, label }) {
   const form = BASE_FORMS[el.type];
   const [draft, setDraft] = useState({ ...el, data: { ...(el.data || {}) } });
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
@@ -515,7 +517,34 @@ function ElementForm({ el, onCancel, onSave, card, input, label }) {
       <section className={`${card} p-4 space-y-3`}>
         <h2 className="text-base font-bold text-slate-800">{form.icon} {el.isNew ? `Nuevo: ${form.singular}` : `${form.singular} ${el.code || ''}`}</h2>
         <p className="text-[11px] text-slate-500">Base {draft.base} · {form.code}. Estos datos se cargan una sola vez y aparecen en cada control.</p>
-        {draft.data?.plan && <p className="text-[11px] font-semibold text-emerald-700">📍 Ubicado en el plano de la base{draft.data.plan.sym ? ` (símbolo ${draft.data.plan.sym.split('-').pop()})` : ''}</p>}
+        {plan && plan.symbols.some(s => s.type === el.type) && (
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">📍 Puesto en el plano <span className="normal-case font-normal">(completa tipo, kg y N° de puesto)</span></span>
+              {draft.data?.plan && (
+                <span className="text-[11px] font-semibold text-emerald-700">
+                  {draft.data.plan.sym ? `Puesto ${plan.symbols.find(s => s.id === draft.data.plan.sym)?.label || ''}` : 'Ubicación manual'}
+                  <button type="button" onClick={() => setDraft(d => { const data = { ...d.data }; delete data.plan; return { ...d, data }; })} className="ml-2 text-red-600 font-semibold">Quitar</button>
+                </span>
+              )}
+            </div>
+            <PlanPicker
+              plan={plan}
+              type={el.type}
+              usedSyms={usedSyms}
+              value={draft.data?.plan?.sym || ''}
+              onPick={(s) => setDraft(d => {
+                const data = { ...d.data };
+                if (!s) { delete data.plan; return { ...d, data }; }
+                data.plan = { sym: s.id, x: s.x, y: s.y };
+                // Completa datos vacíos con lo que indica el plano
+                Object.entries(symbolDefaults(s)).forEach(([k, v]) => { if (!data[k] && v) data[k] = v; });
+                if (el.type === 'EXTINTOR' && !data.puesto) data.puesto = s.label.replace(/\D/g, '');
+                return { ...d, data };
+              })}
+            />
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div><span className={label}>{form.codeLabel}</span><input className={input} value={draft.code || ''} onChange={e => set('code', e.target.value)} /></div>
           <div><span className={label}>{form.locationLabel}</span><input className={input} value={draft.location || ''} onChange={e => set('location', e.target.value)} /></div>

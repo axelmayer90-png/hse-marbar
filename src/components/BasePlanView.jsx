@@ -191,3 +191,45 @@ export default function BasePlanView({ plan, elements, lastControl, thisMonth, o
     </div>
   );
 }
+
+// Selector de puesto en el plano (al dar de alta / editar un elemento)
+export function PlanPicker({ plan, type, usedSyms, value, onPick }) {
+  const [zoomIdx, setZoomIdx] = useState(1);
+  const zoom = ZOOMS[zoomIdx];
+  const syms = plan.symbols.filter(s => s.type === type);
+  const free = syms.filter(s => !usedSyms.has(s.id) || s.id === value);
+  const capTxt = (s) => (s.cap ? (s.cap === 'CO2' ? ' · CO2' : ` · ${s.cap} kg`) : '');
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <select className="flex-1 min-w-[180px] bg-white border border-slate-300 rounded-lg p-2 text-sm" value={value || ''}
+          onChange={e => { const s = syms.find(x => x.id === e.target.value); onPick(s || null); }}>
+          <option value="">— Elegir puesto del plano —</option>
+          {free.map(s => <option key={s.id} value={s.id}>Puesto {s.label}{capTxt(s)}</option>)}
+        </select>
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={() => setZoomIdx(i => Math.max(0, i - 1))} className="p-1.5 rounded border border-slate-300"><ZoomOut className="w-4 h-4" /></button>
+          <button type="button" onClick={() => setZoomIdx(i => Math.min(ZOOMS.length - 1, i + 1))} className="p-1.5 rounded border border-slate-300"><ZoomIn className="w-4 h-4" /></button>
+        </div>
+      </div>
+      <p className="text-[11px] text-slate-500">{free.length} puestos libres. Tocá uno en el plano (los grises ya están asignados a otro elemento).</p>
+      <div className="border border-slate-200 rounded-lg overflow-auto max-h-[55vh]">
+        <div className="relative" style={{ width: `${zoom * 100}%` }}>
+          <img src={plan.image} alt="Plano" className="block w-full h-auto select-none" draggable={false} />
+          {syms.map(s => {
+            const taken = usedSyms.has(s.id) && s.id !== value;
+            const sel = s.id === value;
+            return (
+              <button type="button" key={s.id} disabled={taken} onClick={() => onPick(s)}
+                className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center"
+                style={{ left: `${s.x * 100}%`, top: `${s.y * 100}%`, zIndex: sel ? 20 : 10 }}>
+                <span className={`block w-5 h-5 rounded-full border-2 shadow ${sel ? 'bg-amber-500 border-white ring-4 ring-amber-500/40 scale-125' : taken ? 'bg-slate-300 border-white' : 'bg-white border-slate-700'}`} />
+                <span className={`mt-0.5 px-1 rounded text-[9px] font-bold leading-tight ${sel ? 'bg-amber-600 text-white' : taken ? 'bg-slate-400 text-white' : 'bg-slate-900/80 text-white'}`}>{s.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
