@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import { cacheGet, cacheSet, getStoredSession, isOffline } from './lib/offlineCache';
 import InformesModule from './components/InformesModule';
+import BaseModule from './components/BaseModule';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
@@ -9,7 +10,7 @@ import {
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
   BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users,
-  Award, Send, Eye, Clock, UserCheck, ChevronDown, FileText, WifiOff
+  Award, Send, Eye, Clock, UserCheck, ChevronDown, FileText, WifiOff, Warehouse
 } from 'lucide-react';
 
 export default function App() {
@@ -600,15 +601,23 @@ export default function App() {
   }, [selectedRig, session]);
 
   const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
+  // Usuario de base: solo ve el apartado de su base (extintores, botiquines, DEA, etc.)
+  const isBaseUser = !isAdmin && currentUserProfile?.role === 'base';
+  useEffect(() => {
+    if (isBaseUser && activeTab !== 'bases') setActiveTab('bases');
+  }, [isBaseUser, activeTab]);
 
   // Pestañas de navegación (arriba en compu, barra inferior en el celular)
-  const navTabs = [
+  const navTabs = isBaseUser ? [
+    { key: 'bases', label: `Base ${currentUserProfile?.base || ''}`, short: 'Base', Icon: Warehouse },
+  ] : [
     { key: 'operaciones', label: 'Operaciones', short: 'Plan', Icon: ClipboardList },
     { key: 'guardia', label: 'Diario (14x14)', short: 'Diario', Icon: BookOpen },
     { key: 'informes', label: 'Informes', short: 'Informes', Icon: FileText, iconClass: 'text-emerald-400' },
     { key: 'contingencias', label: 'Contingencias', short: 'Eventos', Icon: AlertOctagon, iconClass: 'text-red-400' },
     { key: 'elementos', label: 'Bienes', short: 'Bienes', Icon: Car, iconClass: 'text-blue-400' },
     { key: 'historico', label: 'Histórico', short: 'Histórico', Icon: Archive },
+    ...(isAdmin ? [{ key: 'bases', label: 'Bases', short: 'Bases', Icon: Warehouse, iconClass: 'text-amber-400' }] : []),
     ...(isAdmin ? [{ key: 'admin', label: 'Admin', short: 'Admin', Icon: Settings }] : [])
   ];
 
@@ -2338,6 +2347,18 @@ export default function App() {
             <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
             Sin conexión: se muestran los últimos datos guardados. Los informes se pueden cargar y generar igual.
           </div>
+        )}
+
+        {/* BASES: controles de elementos de emergencia */}
+        {activeTab === 'bases' && (isAdmin || isBaseUser) && (
+          <BaseModule
+            supabase={supabase}
+            session={session}
+            currentUserProfile={currentUserProfile}
+            isAdmin={isAdmin}
+            profiles={profiles}
+            onProfilesChanged={loadProfiles}
+          />
         )}
 
         {/* INFORMES DE VISITA TÉCNICA */}
