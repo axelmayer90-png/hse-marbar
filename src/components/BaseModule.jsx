@@ -6,6 +6,8 @@ import {
   BASES, BASE_FORMS, FORM_ORDER, scaleItems, countIssues, daysUntil, fmtDate, MONTHS,
 } from '../lib/baseForms.js';
 import { buildBasePdf } from '../lib/basePdf.js';
+import { BASE_PLANS } from '../lib/basePlans.js';
+import BasePlanView from './BasePlanView';
 
 const todayISO = () => {
   const d = new Date();
@@ -226,6 +228,7 @@ export default function BaseModule({ supabase, session, currentUserProfile, isAd
 
   const tabs = [
     { k: 'tablero', l: 'Tablero' },
+    { k: 'plano', l: 'Plano' },
     { k: 'elementos', l: 'Elementos' },
     { k: 'historial', l: 'Historial y PDF' },
     ...(isAdmin ? [{ k: 'usuarios', l: 'Usuarios' }] : []),
@@ -378,6 +381,24 @@ export default function BaseModule({ supabase, session, currentUserProfile, isAd
         </>
       )}
 
+      {/* ===== PLANO ===== */}
+      {tab === 'plano' && (BASE_PLANS[base] ? (
+        <BasePlanView
+          plan={BASE_PLANS[base]}
+          elements={baseElements}
+          lastControl={lastControl}
+          thisMonth={thisMonth}
+          onControl={(e) => setControlFor(e)}
+          onEdit={(e) => setEditingEl({ ...e })}
+          onCreate={(x) => setEditingEl({ ...x, base, code: '', location: '', isNew: true })}
+          onSavePlanPos={(e, pos) => saveElement({ ...e, data: { ...(e.data || {}), plan: { ...(e.data?.plan || {}), ...pos } } })}
+        />
+      ) : (
+        <section className={`${card} p-5 text-sm text-slate-600`}>
+          Todavía no hay un plano cargado para la base {base}. Cuando tengas el plano de evacuación de esta base, se agrega igual que el de Neuquén.
+        </section>
+      ))}
+
       {/* ===== ELEMENTOS ===== */}
       {tab === 'elementos' && FORM_ORDER.map(t => {
         const form = BASE_FORMS[t];
@@ -494,6 +515,7 @@ function ElementForm({ el, onCancel, onSave, card, input, label }) {
       <section className={`${card} p-4 space-y-3`}>
         <h2 className="text-base font-bold text-slate-800">{form.icon} {el.isNew ? `Nuevo: ${form.singular}` : `${form.singular} ${el.code || ''}`}</h2>
         <p className="text-[11px] text-slate-500">Base {draft.base} · {form.code}. Estos datos se cargan una sola vez y aparecen en cada control.</p>
+        {draft.data?.plan && <p className="text-[11px] font-semibold text-emerald-700">📍 Ubicado en el plano de la base{draft.data.plan.sym ? ` (símbolo ${draft.data.plan.sym.split('-').pop()})` : ''}</p>}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div><span className={label}>{form.codeLabel}</span><input className={input} value={draft.code || ''} onChange={e => set('code', e.target.value)} /></div>
           <div><span className={label}>{form.locationLabel}</span><input className={input} value={draft.location || ''} onChange={e => set('location', e.target.value)} /></div>
