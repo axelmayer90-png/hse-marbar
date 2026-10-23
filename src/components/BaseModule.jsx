@@ -116,6 +116,20 @@ export default function BaseModule({ supabase, session, currentUserProfile, isAd
     return true;
   };
 
+  // ---------- Eliminar elemento (por ej. cargado por error) ----------
+  const deleteElement = async (el) => {
+    const n = controls.filter(c => c.element_id === el.id).length;
+    const form = BASE_FORMS[el.type];
+    const msg = n
+      ? `¿Eliminar ${form.singular} ${el.code || ''}? Tiene ${n} control${n > 1 ? 'es' : ''} registrado${n > 1 ? 's' : ''} que también se borran.\n\nSi solo dejó de estar en la base, usá "Dar de baja" para conservar el historial.`
+      : `¿Eliminar ${form.singular} ${el.code || ''}? Se borra definitivamente.`;
+    if (!window.confirm(msg)) return false;
+    const { error } = await supabase.from('base_elements').delete().eq('id', el.id);
+    if (error) { alert('No se pudo eliminar: ' + error.message); return false; }
+    await load();
+    return true;
+  };
+
   // ---------- Guardar control ----------
   const saveControl = async (el, ctl, newData) => {
     const form = BASE_FORMS[el.type];
@@ -223,6 +237,7 @@ export default function BaseModule({ supabase, session, currentUserProfile, isAd
         usedSyms={new Set(elements.filter(e => e.base === (editingEl.base || base) && e.active !== false && e.id !== editingEl.id).map(e => e.data?.plan?.sym).filter(Boolean))}
         onCancel={() => setEditingEl(null)}
         onSave={async (el) => { const ok = await saveElement(el); if (ok) setEditingEl(null); }}
+        onDelete={async (el) => { const ok = await deleteElement(el); if (ok) setEditingEl(null); }}
         card={card} input={input} label={label}
       />
     );
@@ -445,6 +460,27 @@ export default function BaseModule({ supabase, session, currentUserProfile, isAd
         );
       })}
 
+      {tab === 'elementos' && (() => {
+        const inactive = elements.filter(e => e.base === base && e.active === false);
+        if (!inactive.length) return null;
+        return (
+          <section className={`${card} p-4`}>
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Dados de baja ({inactive.length})</h3>
+            <div className="divide-y divide-slate-100">
+              {inactive.map(e => (
+                <div key={e.id} className="py-2 flex items-center justify-between gap-2 text-sm">
+                  <span className="min-w-0 text-slate-600">{BASE_FORMS[e.type]?.icon} {e.code || BASE_FORMS[e.type]?.singular}<span className="text-[11px] text-slate-400"> · {e.location || 'sin ubicación'}</span></span>
+                  <span className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => saveElement({ ...e, active: true })} className="text-xs font-semibold border border-slate-300 rounded-lg px-2.5 py-1">Reactivar</button>
+                    <button onClick={() => deleteElement(e)} className="p-1.5 text-slate-400 hover:text-red-600" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
+
       {/* ===== HISTORIAL ===== */}
       {tab === 'historial' && (() => {
         const form = BASE_FORMS[histType];
@@ -506,7 +542,7 @@ export default function BaseModule({ supabase, session, currentUserProfile, isAd
 }
 
 // ======================= Alta / edición de elemento =======================
-function ElementForm({ el, plan, usedSyms, onCancel, onSave, card, input, label }) {
+function ElementForm({ el, plan, usedSyms, onCancel, onSave, onDelete, card, input, label }) {
   const form = BASE_FORMS[el.type];
   const [draft, setDraft] = useState({ ...el, data: { ...(el.data || {}) } });
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
@@ -536,10 +572,15 @@ function ElementForm({ el, plan, usedSyms, onCancel, onSave, card, input, label 
               onPick={(s) => setDraft(d => {
                 const data = { ...d.data };
                 if (!s) { delete data.plan; return { ...d, data }; }
+                if (s.id === d.data?.plan?.sym) return d;
+                // Valores que había puesto el puesto anterior: si no se tocaron a mano, se reemplazan
+                const prevSym = plan.symbols.find(x => x.id === d.data?.plan?.sym);
+                const prevAuto = prevSym ? { ...symbolDefaults(prevSym), puesto: prevSym.label.replace(/\D/g, '') } : {};
+                const nextAuto = { ...symbolDefaults(s), ...(el.type === 'EXTINTOR' ? { puesto: s.label.replace(/\D/g, '') } : {}) };
                 data.plan = { sym: s.id, x: s.x, y: s.y };
-                // Completa datos vacíos con lo que indica el plano
-                Object.entries(symbolDefaults(s)).forEach(([k, v]) => { if (!data[k] && v) data[k] = v; });
-                if (el.type === 'EXTINTOR' && !data.puesto) data.puesto = s.label.replace(/\D/g, '');
+                Object.entries(nextAuto).forEach(([k, v]) => {
+                  if (!data[k] || data[k] === prevAuto[k]) data[k] = v;
+                });
                 return { ...d, data };
               })}
             />
@@ -561,6 +602,10 @@ function ElementForm({ el, plan, usedSyms, onCancel, onSave, card, input, label 
           {!el.isNew && (
             <button onClick={() => { if (window.confirm('¿Dar de baja este elemento? Deja de aparecer en los controles; su historial se conserva.')) onSave({ ...draft, active: false }); }}
               className="text-sm font-semibold text-red-700 border border-red-200 rounded-lg py-2.5 px-4">Dar de baja</button>
+          )}
+          {!el.isNew && onDelete && (
+            <button onClick={() => onDelete(el)}
+              className="text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg py-2.5 px-4 flex items-center gap-1.5"><Trash2 className="w-4 h-4" /> Eliminar</button>
           )}
         </div>
       </section>
