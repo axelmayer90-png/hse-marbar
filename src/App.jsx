@@ -190,6 +190,8 @@ export default function App() {
   const [tplStage, setTplStage] = useState('1ra Quincena (Día 0 a 15)');
   const [tplDays, setTplDays] = useState(0);
   const [newRigName, setNewRigName] = useState('');
+  // Edición de datos del equipo / pozo actual (corregir nombres o fecha sin trasladarlo)
+  const [editRig, setEditRig] = useState(null);
 
   // Estados de Auditoría
   const [adminSelectedInspector, setAdminSelectedInspector] = useState('ALL');
@@ -1831,6 +1833,54 @@ export default function App() {
     loadRigs();
   };
 
+  const openEditRig = (rigId) => {
+    const rig = (rigs || []).find(r => r.id === rigId);
+    if (!rig) return;
+    const loc = activeLocationMap[rigId];
+    setEditRig({
+      rigId, name: rig.name || '', origName: rig.name || '',
+      locId: loc?.id || null, locName: loc?.location_name || '', origLocName: loc?.location_name || '',
+      locDate: loc?.start_date ? String(loc.start_date).split('T')[0] : '', origDate: loc?.start_date ? String(loc.start_date).split('T')[0] : '',
+      shiftTasks: true, saving: false,
+    });
+  };
+
+  const handleSaveEditRig = async (e) => {
+    e.preventDefault();
+    const ed = editRig;
+    if (!ed || !ed.name.trim()) return;
+    setEditRig({ ...ed, saving: true });
+    try {
+      if (ed.name.trim() !== ed.origName) {
+        const { error } = await supabase.from('rigs').update({ name: ed.name.trim() }).eq('id', ed.rigId);
+        if (error) throw error;
+      }
+      if (ed.locId && (ed.locName.trim() !== ed.origLocName || ed.locDate !== ed.origDate)) {
+        if (!ed.locName.trim() || !ed.locDate) throw new Error('La locación y la fecha de spud-in no pueden quedar vacías.');
+        const { error } = await supabase.from('rig_locations').update({ location_name: ed.locName.trim(), start_date: ed.locDate }).eq('id', ed.locId);
+        if (error) throw error;
+        // Si se corrigió el spud-in, se corren las fechas de las tareas pendientes de ese pozo
+        if (ed.locDate !== ed.origDate && ed.origDate && ed.shiftTasks) {
+          const delta = Math.round((new Date(ed.locDate + 'T00:00:00') - new Date(ed.origDate + 'T00:00:00')) / 86400000);
+          const { data: pend } = await supabase.from('tasks').select('id, scheduled_date, status').eq('rig_location_id', ed.locId).neq('status', 'Completada');
+          for (const t of (pend || [])) {
+            if (!t.scheduled_date) continue;
+            const d = new Date(String(t.scheduled_date).split('T')[0] + 'T00:00:00');
+            d.setDate(d.getDate() + delta);
+            await supabase.from('tasks').update({ scheduled_date: d.toISOString().split('T')[0] }).eq('id', t.id);
+          }
+        }
+      }
+      setEditRig(null);
+      loadRigs();
+      loadAllLocations();
+      loadTasks();
+    } catch (err) {
+      alert('No se pudo guardar: ' + (err?.message || err));
+      setEditRig(ed2 => (ed2 ? { ...ed2, saving: false } : ed2));
+    }
+  };
+
   const handleDeleteRig = async (rigId, rigName) => {
     if (!confirm(`¿Eliminar el "${rigName}"?`)) return;
     await supabase.from('rigs').delete().eq('id', rigId);
@@ -2349,6 +2399,47 @@ export default function App() {
           </div>
         )}
 
+        {/* EDITAR DATOS DEL EQUIPO / POZO ACTUAL */}
+        {editRig && (
+          <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-3" onClick={() => !editRig.saving && setEditRig(null)}>
+            <form onSubmit={handleSaveEditRig} onClick={(e) => e.stopPropagation()} className="bg-white w-full max-w-md p-5 rounded-xl shadow-2xl border-2 border-amber-500 space-y-3">
+              <div className="flex justify-between items-center border-b pb-2">
+                <h3 className="text-sm font-bold text-slate-800">Editar datos del equipo</h3>
+                <button type="button" onClick={() => setEditRig(null)} className="text-slate-400 hover:text-slate-700"><X className="w-4 h-4" /></button>
+              </div>
+              <p className="text-[11px] text-slate-500">Para corregir datos mal cargados. No traslada el equipo ni cierra el pozo actual.</p>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Nombre del equipo:</label>
+                <input value={editRig.name} onChange={(e) => setEditRig({ ...editRig, name: e.target.value })} className="w-full text-sm p-2 border border-slate-300 rounded-lg" required />
+              </div>
+              {editRig.locId ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Locación / PAD actual:</label>
+                    <input value={editRig.locName} onChange={(e) => setEditRig({ ...editRig, locName: e.target.value })} className="w-full text-sm p-2 border border-slate-300 rounded-lg" required />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de spud-in:</label>
+                    <input type="date" value={editRig.locDate} onChange={(e) => setEditRig({ ...editRig, locDate: e.target.value })} className="w-full text-sm p-2 border border-slate-300 rounded-lg" required />
+                  </div>
+                  {editRig.locDate && editRig.origDate && editRig.locDate !== editRig.origDate && (
+                    <label className="flex items-start gap-2 text-xs text-slate-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                      <input type="checkbox" className="mt-0.5" checked={editRig.shiftTasks} onChange={(e) => setEditRig({ ...editRig, shiftTasks: e.target.checked })} />
+                      <span>Correr también las fechas de las tareas pendientes de este pozo ({(() => { const d = Math.round((new Date(editRig.locDate + 'T00:00:00') - new Date(editRig.origDate + 'T00:00:00')) / 86400000); return `${d > 0 ? '+' : ''}${d} días`; })()}).</span>
+                    </label>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2">Este equipo no tiene un pozo activo; solo se puede corregir el nombre.</p>
+              )}
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setEditRig(null)} className="text-sm font-semibold text-slate-600 px-3 py-2">Cancelar</button>
+                <button type="submit" disabled={editRig.saving} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white text-sm font-bold px-4 py-2 rounded-lg">{editRig.saving ? 'Guardando…' : 'Guardar cambios'}</button>
+              </div>
+            </form>
+          </div>
+        )}
+
         {/* BASES: controles de elementos de emergencia */}
         {activeTab === 'bases' && (isAdmin || isBaseUser) && (
           <BaseModule
@@ -2423,6 +2514,15 @@ export default function App() {
                   <Layers className="w-3.5 h-3.5" />
                   Filtrar por Equipo (Locación y Fecha de Spud-in)
                 </label>
+                {isAdmin && selectedRig !== 'ALL' && (
+                  <button
+                    onClick={() => openEditRig(selectedRig)}
+                    className="flex items-center gap-1 text-xs bg-white border border-slate-300 hover:border-amber-500 text-slate-700 font-semibold py-1.5 px-3 rounded-lg transition ml-auto mr-2"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    Editar datos
+                  </button>
+                )}
                 {isAdmin && (rigs || []).length > 0 && (
                   <button
                     onClick={handleOpenMoveModal}
@@ -4502,6 +4602,14 @@ export default function App() {
                 {(rigs || []).map((rig) => (
                   <div key={rig.id} className="py-2.5 flex justify-between items-center text-sm">
                     <span className="font-semibold text-slate-700">{rig.name}</span>
+                    <span className="flex items-center gap-1">
+                    <button
+                      onClick={() => openEditRig(rig.id)}
+                      className="text-xs text-slate-600 hover:text-slate-900 font-medium flex items-center gap-1 hover:bg-slate-100 py-1 px-2 rounded-lg"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      Editar
+                    </button>
                     <button
                       onClick={() => handleDeleteRig(rig.id, rig.name)}
                       className="text-xs text-red-600 hover:text-red-700 font-medium flex items-center gap-1 hover:bg-red-50 py-1 px-2 rounded-lg"
@@ -4509,6 +4617,7 @@ export default function App() {
                       <Trash2 className="w-3.5 h-3.5" />
                       Dar de baja
                     </button>
+                    </span>
                   </div>
                 ))}
               </div>
