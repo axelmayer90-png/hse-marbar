@@ -7,6 +7,26 @@
 -- 1) Perfil: base asignada al usuario (rol 'base')
 alter table public.profiles add column if not exists base text;
 
+-- 1b) Permitir el rol 'base' en profiles (mantiene todos los roles que ya existían)
+do $$
+declare
+  old_def text;
+  lista text;
+begin
+  select pg_get_constraintdef(c.oid) into old_def
+  from pg_constraint c
+  where c.conname = 'profiles_role_check' and c.conrelid = 'public.profiles'::regclass;
+
+  select string_agg(quote_literal(r), ',') into lista from (
+    select (regexp_matches(coalesce(old_def, ''), '''([^'']+)''', 'g'))[1] as r
+    union select distinct role from public.profiles where role is not null
+    union select unnest(array['admin', 'inspector', 'base'])
+  ) t;
+
+  alter table public.profiles drop constraint if exists profiles_role_check;
+  execute format('alter table public.profiles add constraint profiles_role_check check (role is null or role in (%s))', lista);
+end $$;
+
 -- 2) Funciones auxiliares para las reglas de acceso
 create or replace function public.hse_is_admin() returns boolean
 language sql stable security definer set search_path = public as $$
