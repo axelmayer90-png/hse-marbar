@@ -747,37 +747,92 @@ function ControlForm({ el, userName, last, onCancel, onSave, card, input, label 
   );
 }
 
-// ======================= Usuarios de base (admin) =======================
-function UsersPanel({ supabase, profiles, onChanged, card, input }) {
+// ======================= Usuarios (admin): aprobación y roles =======================
+const DEFAULT_CARD = 'bg-white rounded-xl shadow-sm border border-slate-200';
+const DEFAULT_INPUT = 'w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none';
+
+const roleValue = (p) => p.role === 'base' ? `base:${p.base || ''}` : (p.role === 'informes' ? 'informes' : 'inspector');
+const roleLabel = (p) => p.role === 'base' ? `Base ${p.base || '—'}` : (p.role === 'informes' ? 'Solo Informes' : (p.role || 'inspector'));
+
+export function UsersPanel({ supabase, profiles, onChanged, card = DEFAULT_CARD, input = DEFAULT_INPUT }) {
   const [saving, setSaving] = useState('');
-  const update = async (p, role, base) => {
+  const [draftRole, setDraftRole] = useState({}); // rol elegido para los pendientes antes de aprobar
+
+  const save = async (p, changes) => {
     setSaving(p.id);
-    const { error } = await supabase.from('profiles').update({ role, base: role === 'base' ? base : null }).eq('id', p.id);
+    const { error } = await supabase.from('profiles').update(changes).eq('id', p.id);
     setSaving('');
     if (error) alert('No se pudo actualizar: ' + error.message);
     else onChanged && onChanged();
   };
-  const list = (profiles || []).filter(p => p.role !== 'admin');
+  const roleChanges = (v) => v.startsWith('base:')
+    ? { role: 'base', base: v.split(':')[1] }
+    : { role: v, base: null };
+
+  const others = (profiles || []).filter(p => p.role !== 'admin');
+  const pending = others.filter(p => p.approved === false);
+  const active = others.filter(p => p.approved !== false);
+
+  const RoleSelect = ({ value, onChange, disabled }) => (
+    <select className={`${input} w-auto py-1.5`} disabled={disabled} value={value} onChange={e => onChange(e.target.value)}>
+      <option value="inspector">Inspector (equipos)</option>
+      <option value="informes">Solo Informes</option>
+      {BASES.map(b => <option key={b} value={`base:${b}`}>Usuario de base · {b}</option>)}
+    </select>
+  );
+
   return (
-    <section className={`${card} p-4`}>
-      <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2"><Users className="w-4 h-4" /> Usuarios de base</h3>
-      <p className="text-[11px] text-slate-500 mb-3">El usuario se registra normalmente en la app; acá le asignás la base. Un usuario de base solo ve el apartado de su base.</p>
-      <div className="divide-y divide-slate-100">
-        {list.map(p => (
-          <div key={p.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2">
-            <span className="min-w-0">
-              <span className="block text-sm font-semibold text-slate-800">{p.full_name || p.email}</span>
-              <span className="text-[11px] text-slate-500">{p.email} · {p.role === 'base' ? `Base ${p.base || '—'}` : (p.role || 'inspector')}</span>
-            </span>
-            <select className={`${input} w-auto py-1.5`} disabled={saving === p.id}
-              value={p.role === 'base' ? `base:${p.base || ''}` : 'inspector'}
-              onChange={e => { const v = e.target.value; if (v === 'inspector') update(p, 'inspector', null); else update(p, 'base', v.split(':')[1]); }}>
-              <option value="inspector">Inspector (equipos)</option>
-              {BASES.map(b => <option key={b} value={`base:${b}`}>Usuario de base · {b}</option>)}
-            </select>
-          </div>
-        ))}
-        {!list.length && <p className="text-sm text-slate-400 italic">No hay usuarios.</p>}
+    <section className={`${card} p-4 space-y-4`}>
+      <div>
+        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2"><Users className="w-4 h-4" /> Usuarios</h3>
+        <p className="text-[11px] text-slate-500">Quien se registra queda pendiente y no puede ver ni cargar nada hasta que lo apruebes. Al aprobar elegís qué puede ver: Inspector (toda la app), Solo Informes, o Usuario de base.</p>
+      </div>
+
+      <div>
+        <h4 className="text-xs font-bold text-amber-700 uppercase tracking-wider mb-1">Pendientes de aprobación ({pending.length})</h4>
+        <div className="divide-y divide-slate-100">
+          {pending.map(p => (
+            <div key={p.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2 bg-amber-50/60 px-2 rounded">
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-slate-800">{p.full_name || p.email}</span>
+                <span className="text-[11px] text-slate-500">{p.email}</span>
+              </span>
+              <span className="flex flex-wrap items-center gap-2">
+                <RoleSelect value={draftRole[p.id] || 'inspector'} disabled={saving === p.id}
+                  onChange={v => setDraftRole(d => ({ ...d, [p.id]: v }))} />
+                <button disabled={saving === p.id}
+                  onClick={() => save(p, { approved: true, ...roleChanges(draftRole[p.id] || 'inspector') })}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg disabled:opacity-50">
+                  Aprobar
+                </button>
+              </span>
+            </div>
+          ))}
+          {!pending.length && <p className="text-sm text-slate-400 italic py-1">No hay solicitudes pendientes.</p>}
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Usuarios con acceso ({active.length})</h4>
+        <div className="divide-y divide-slate-100">
+          {active.map(p => (
+            <div key={p.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2">
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-slate-800">{p.full_name || p.email}</span>
+                <span className="text-[11px] text-slate-500">{p.email} · {roleLabel(p)}</span>
+              </span>
+              <span className="flex flex-wrap items-center gap-2">
+                <RoleSelect value={roleValue(p)} disabled={saving === p.id} onChange={v => save(p, roleChanges(v))} />
+                <button disabled={saving === p.id}
+                  onClick={() => { if (window.confirm(`¿Quitarle el acceso a ${p.full_name || p.email}? Vuelve a quedar pendiente; sus registros se conservan.`)) save(p, { approved: false }); }}
+                  className="bg-slate-100 hover:bg-red-100 text-red-700 text-xs font-bold px-3 py-1.5 rounded-lg disabled:opacity-50">
+                  Quitar acceso
+                </button>
+              </span>
+            </div>
+          ))}
+          {!active.length && <p className="text-sm text-slate-400 italic">No hay usuarios.</p>}
+        </div>
       </div>
     </section>
   );
