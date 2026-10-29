@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import { cacheGet, cacheSet, getStoredSession, isOffline } from './lib/offlineCache';
 import InformesModule from './components/InformesModule';
-import BaseModule from './components/BaseModule';
+import BaseModule, { UsersPanel } from './components/BaseModule';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
@@ -401,7 +401,7 @@ export default function App() {
       }
     });
     if (error) alert('Error: ' + error.message);
-    else alert('Usuario registrado con éxito.');
+    else alert('Solicitud enviada. Tu cuenta queda pendiente hasta que el administrador la apruebe.');
     setAuthLoading(false);
   };
 
@@ -605,13 +605,22 @@ export default function App() {
   const isAdmin = currentUserProfile?.role === 'admin' || session?.user?.email === 'axel.mayer90@gmail.com';
   // Usuario de base: solo ve el apartado de su base (extintores, botiquines, DEA, etc.)
   const isBaseUser = !isAdmin && currentUserProfile?.role === 'base';
+  // Usuario de informes: solo ve el módulo Informes
+  const isInformesUser = !isAdmin && currentUserProfile?.role === 'informes';
+  // Cuentas nuevas quedan pendientes hasta que el administrador las apruebe
+  const isPendingApproval = !isAdmin && !!currentUserProfile && currentUserProfile.approved === false;
   useEffect(() => {
     if (isBaseUser && activeTab !== 'bases') setActiveTab('bases');
-  }, [isBaseUser, activeTab]);
+    if (isInformesUser && activeTab !== 'informes') setActiveTab('informes');
+  }, [isBaseUser, isInformesUser, activeTab]);
+
+  const pendingCount = isAdmin ? (profiles || []).filter(p => p.role !== 'admin' && p.approved === false).length : 0;
 
   // Pestañas de navegación (arriba en compu, barra inferior en el celular)
   const navTabs = isBaseUser ? [
     { key: 'bases', label: `Base ${currentUserProfile?.base || ''}`, short: 'Base', Icon: Warehouse },
+  ] : isInformesUser ? [
+    { key: 'informes', label: 'Informes', short: 'Informes', Icon: FileText, iconClass: 'text-emerald-400' },
   ] : [
     { key: 'operaciones', label: 'Operaciones', short: 'Plan', Icon: ClipboardList },
     { key: 'guardia', label: 'Diario (14x14)', short: 'Diario', Icon: BookOpen },
@@ -620,7 +629,7 @@ export default function App() {
     { key: 'elementos', label: 'Bienes', short: 'Bienes', Icon: Car, iconClass: 'text-blue-400' },
     { key: 'historico', label: 'Histórico', short: 'Histórico', Icon: Archive },
     ...(isAdmin ? [{ key: 'bases', label: 'Bases', short: 'Bases', Icon: Warehouse, iconClass: 'text-amber-400' }] : []),
-    ...(isAdmin ? [{ key: 'admin', label: 'Admin', short: 'Admin', Icon: Settings }] : [])
+    ...(isAdmin ? [{ key: 'admin', label: pendingCount ? `Admin (${pendingCount})` : 'Admin', short: pendingCount ? `Admin (${pendingCount})` : 'Admin', Icon: Settings }] : [])
   ];
 
   // Mapa de Locación Activa por Equipo
@@ -2303,7 +2312,7 @@ export default function App() {
               disabled={authLoading}
               className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg text-sm transition disabled:opacity-50"
             >
-              {authLoading ? 'Verificando...' : isRegistering ? 'Crear Cuenta' : 'Iniciar Sesión'}
+              {authLoading ? 'Verificando...' : isRegistering ? 'Solicitar acceso' : 'Iniciar Sesión'}
             </button>
           </form>
 
@@ -2312,7 +2321,35 @@ export default function App() {
               onClick={() => setIsRegistering(!isRegistering)}
               className="text-xs text-slate-600 hover:text-amber-600 font-semibold"
             >
-              {isRegistering ? '¿Ya tienes cuenta? Inicia sesión' : '¿Nuevo usuario? Regístrate aquí'}
+              {isRegistering ? '¿Ya tienes cuenta? Inicia sesión' : '¿Nuevo usuario? Solicitá acceso aquí'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // CUENTA PENDIENTE DE APROBACIÓN
+  if (isPendingApproval) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl space-y-4 text-center">
+          <div className="inline-flex p-3 bg-amber-100 rounded-full text-amber-600">
+            <ShieldCheck className="w-10 h-10" />
+          </div>
+          <h1 className="text-lg font-bold text-slate-900">Cuenta pendiente de aprobación</h1>
+          <p className="text-sm text-slate-600">
+            Hola {currentUserProfile?.full_name || session?.user?.email}. Tu solicitud de acceso fue registrada.
+            El administrador tiene que aprobarla antes de que puedas usar la app.
+          </p>
+          <div className="flex gap-2 justify-center pt-2">
+            <button onClick={() => loadUserProfile(session.user.id)}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-lg text-sm">
+              Ya me aprobaron
+            </button>
+            <button onClick={handleLogout}
+              className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2 px-4 rounded-lg text-sm">
+              Cerrar sesión
             </button>
           </div>
         </div>
@@ -4207,6 +4244,9 @@ export default function App() {
         {/* ADMIN */}
         {activeTab === 'admin' && isAdmin && (
           <div className="space-y-6">
+            {/* USUARIOS: aprobación de registros y roles */}
+            <UsersPanel supabase={supabase} profiles={profiles} onChanged={loadProfiles} />
+
             {/* SECCIÓN 1: CREAR NUEVA CAMPAÑA DE DIFUSIÓN */}
             <section className="bg-white p-5 rounded-xl shadow-sm border border-purple-200 space-y-4">
               <div className="flex items-center gap-2 border-b border-purple-100 pb-2">
