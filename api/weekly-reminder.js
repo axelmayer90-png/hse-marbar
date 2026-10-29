@@ -116,7 +116,7 @@ export default async function handler(req, res) {
   }
 
   // Inspectores y equipos que visitó cada uno en los últimos 30 días
-  const { data: profiles } = await supabase.from('profiles').select('id, full_name, email');
+  const { data: profiles } = await supabase.from('profiles').select('id, full_name, email, role, approved');
   const { data: logs } = await supabase
     .from('daily_logs')
     .select('user_id, rig_id, extra_rig_ids')
@@ -133,6 +133,7 @@ export default async function handler(req, res) {
 
   const recipients = (profiles || [])
     .filter(p => p.email)
+    .filter(p => p.approved !== false && p.role !== 'base' && p.role !== 'informes')
     .filter(p => !req.query?.only || p.email.toLowerCase() === String(req.query.only).toLowerCase());
 
   const emails = recipients.map(p => {
