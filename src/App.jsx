@@ -10,7 +10,7 @@ import {
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
   BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users,
-  Award, Send, Eye, Clock, UserCheck, ChevronDown, FileText, WifiOff, Warehouse
+  Award, Send, Eye, Clock, UserCheck, ChevronDown, FileText, WifiOff, Warehouse, MoreHorizontal, MapPin, Globe
 } from 'lucide-react';
 
 export default function App() {
@@ -31,6 +31,7 @@ export default function App() {
 
   // Autenticación
   const [session, setSession] = useState(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
   const [profiles, setProfiles] = useState([]);
   const [authEmail, setAuthEmail] = useState('');
@@ -2410,23 +2411,62 @@ export default function App() {
         </div>
       </header>
 
-      <nav
-        className="sm:hidden fixed bottom-0 inset-x-0 z-30 bg-slate-900 border-t border-slate-700 grid"
-        style={{ gridTemplateColumns: `repeat(${navTabs.length}, minmax(0, 1fr))`, paddingBottom: 'env(safe-area-inset-bottom)' }}
-      >
-        {navTabs.map(({ key, short, Icon, iconClass }) => (
+      {(() => {
+        // Celular: hasta 5 botones; si hay más pestañas, las últimas van al menú "Más"
+        const mainTabs = navTabs.length > 5 ? navTabs.slice(0, 4) : navTabs;
+        const extraTabs = navTabs.length > 5 ? navTabs.slice(4) : [];
+        const extraActive = extraTabs.some(t => t.key === activeTab);
+        const go = (key) => { setActiveTab(key); setMoreOpen(false); window.scrollTo({ top: 0 }); };
+        const tabBtn = (key, label, Icon, active, onClick, badge) => (
           <button
             key={key}
-            onClick={() => { setActiveTab(key); window.scrollTo({ top: 0 }); }}
-            className={`flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold transition ${
-              activeTab === key ? 'text-amber-400' : 'text-slate-400'
+            onClick={onClick}
+            aria-label={label}
+            className={`relative flex flex-col items-center justify-center gap-1 min-h-[56px] py-2 text-[11px] font-semibold transition ${
+              active ? 'text-amber-400' : 'text-slate-300'
             }`}
           >
-            <Icon className={`w-5 h-5 ${activeTab === key ? '' : (iconClass || '')}`} />
-            {short}
+            {active && <span className="absolute top-0 inset-x-4 h-0.5 rounded-full bg-amber-400" />}
+            <Icon className="w-6 h-6" />
+            <span className="truncate max-w-full px-1">{label}</span>
+            {badge > 0 && <span className="absolute top-1.5 right-1/2 translate-x-4 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] leading-4 font-bold">{badge}</span>}
           </button>
-        ))}
-      </nav>
+        );
+        return (
+          <>
+            {moreOpen && extraTabs.length > 0 && (
+              <div className="sm:hidden fixed inset-0 z-30 bg-slate-900/50" onClick={() => setMoreOpen(false)}>
+                <div
+                  className="absolute inset-x-0 bottom-0 bg-white rounded-t-2xl p-4 shadow-2xl space-y-1"
+                  style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-slate-300" />
+                  {extraTabs.map(({ key, label, Icon }) => (
+                    <button
+                      key={key}
+                      onClick={() => go(key)}
+                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-base font-semibold ${
+                        activeTab === key ? 'bg-amber-50 text-amber-800' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Icon className="w-5 h-5" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <nav
+              className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900 border-t border-slate-700 grid"
+              style={{ gridTemplateColumns: `repeat(${mainTabs.length + (extraTabs.length ? 1 : 0)}, minmax(0, 1fr))`, paddingBottom: 'env(safe-area-inset-bottom)' }}
+            >
+              {mainTabs.map(({ key, short, Icon }) => tabBtn(key, short, Icon, activeTab === key, () => go(key)))}
+              {extraTabs.length > 0 && tabBtn('mas', 'Más', MoreHorizontal, extraActive || moreOpen, () => setMoreOpen(o => !o), pendingCount)}
+            </nav>
+          </>
+        );
+      })()}
 
       <main className="max-w-5xl mx-auto p-3 sm:p-4 pb-24 sm:pb-4 space-y-4">
         {!isOnline && (
