@@ -32,6 +32,7 @@ export default function App() {
   // Autenticación
   const [session, setSession] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [openRigGroups, setOpenRigGroups] = useState({});
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
   const [profiles, setProfiles] = useState([]);
   const [authEmail, setAuthEmail] = useState('');
@@ -2545,51 +2546,41 @@ export default function App() {
         {/* OPERACIONES */}
         {activeTab === 'operaciones' && (
           <>
-            <section className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-              <div className="bg-slate-900 text-white p-3 rounded-xl shadow-sm col-span-2 sm:col-span-1">
-                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider block">Equipos Activos</span>
-                <span className="text-xl font-black">{activeRigsCount}</span>
-                <span className="text-[10px] text-slate-400 block">en operación</span>
+            <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 space-y-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span><strong className="text-slate-800">{activeRigsCount}</strong> equipos activos · <strong className="text-slate-800">{totalTasksCount}</strong> tareas en el plan</span>
               </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Tareas del Plan</span>
-                <span className="text-xl font-black text-slate-800">{totalTasksCount}</span>
-              </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider block">Pendientes</span>
-                <span className="text-xl font-black text-blue-700">{pendingTasksCount}</span>
-              </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-red-600 uppercase tracking-wider block">Vencidas</span>
-                <span className="text-xl font-black text-red-600">{overdueTasksCount}</span>
-              </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider block">Completadas</span>
-                <span className="text-xl font-black text-emerald-700">{completedTasksCount}</span>
-              </div>
-              <div
-                className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm col-span-2 sm:col-span-1"
-                title="Completadas sobre tareas exigibles a hoy (programadas hasta hoy o ya cerradas). Las tareas a futuro no restan."
-              >
-                <span className="text-[11px] font-bold text-amber-600 uppercase tracking-wider block">Cumplimiento</span>
-                <div className="flex items-center gap-1">
-                  <span className="text-xl font-black text-slate-800">{complianceRate}%</span>
-                  <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                    <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${complianceRate}%` }}></div>
-                  </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-slate-50 py-2">
+                  <span className="block text-2xl font-black text-slate-800 leading-tight">{pendingTasksCount}</span>
+                  <span className="block text-xs font-semibold text-slate-600">Pendientes</span>
                 </div>
-                <span className="text-[10px] text-slate-500 block">
-                  {completedExigibleCount}/{exigibleTasksCount} exigibles · a término {onTimeRate}%
-                </span>
+                <div className={`rounded-lg py-2 ${overdueTasksCount > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+                  <span className={`block text-2xl font-black leading-tight ${overdueTasksCount > 0 ? 'text-red-600' : 'text-slate-800'}`}>{overdueTasksCount}</span>
+                  <span className={`block text-xs font-semibold ${overdueTasksCount > 0 ? 'text-red-700' : 'text-slate-600'}`}>Vencidas</span>
+                </div>
+                <div className="rounded-lg bg-slate-50 py-2">
+                  <span className="block text-2xl font-black text-emerald-700 leading-tight">{completedTasksCount}</span>
+                  <span className="block text-xs font-semibold text-slate-600">Completadas</span>
+                </div>
+              </div>
+              <div title="Completadas sobre tareas exigibles a hoy (programadas hasta hoy o ya cerradas). Las tareas a futuro no restan.">
+                <div className="flex items-baseline justify-between text-xs mb-1">
+                  <span className="font-semibold text-slate-700">Cumplimiento <strong className="text-base text-slate-900">{complianceRate}%</strong></span>
+                  <span className="text-slate-500">{completedExigibleCount}/{exigibleTasksCount} exigibles · a término {onTimeRate}%</span>
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div className={`h-2 rounded-full ${complianceRate >= 80 ? 'bg-emerald-500' : complianceRate >= 50 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${complianceRate}%` }}></div>
+                </div>
               </div>
             </section>
 
             {/* SECCIÓN FILTRAR POR EQUIPO: CON LOCACIÓN Y FECHA DE CARGA */}
             <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex justify-between items-center">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                  <Layers className="w-3.5 h-3.5" />
-                  Filtrar por Equipo (Locación y Fecha de Spud-in)
+                <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-slate-500" />
+                  Equipo
                 </label>
                 {isAdmin && selectedRig !== 'ALL' && (
                   <button
@@ -2606,7 +2597,7 @@ export default function App() {
                     className="flex items-center gap-1 text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold py-1.5 px-3 rounded-lg transition"
                   >
                     <Truck className="w-3.5 h-3.5" />
-                    Mover Equipo (Nuevo Pozo)
+                    Mover a nuevo pozo
                   </button>
                 )}
               </div>
@@ -3189,8 +3180,8 @@ export default function App() {
                 <div className="bg-white p-8 rounded-xl text-center text-slate-400 text-sm border border-dashed border-slate-300">
                   No hay tareas en esta categoría.
                 </div>
-              ) : (
-                sortedTasks.map((task) => {
+              ) : (() => {
+                const renderTask = (task, inGroup = false) => {
                   const overdue = isOverdue(task.scheduled_date, task.status);
                   const dueToday = isDueToday(task.scheduled_date, task.status);
                   const rigName = task.rig_locations?.rigs?.name || task.rigs?.name;
@@ -3200,46 +3191,37 @@ export default function App() {
                   return (
                     <div 
                       key={task.id} 
-                      className={`bg-white p-4 rounded-xl shadow-sm border transition-all ${
-                        task.status === 'Completada' ? 'border-emerald-200 bg-emerald-50/20 opacity-95' :
-                        task.status === 'En Progreso' ? 'border-blue-300 bg-blue-50/20' :
-                        overdue ? 'border-red-400 bg-red-50/40' :
-                        dueToday ? 'border-amber-400 bg-amber-50/40' :
-                        'border-slate-200'
+                      className={`bg-white px-3.5 py-3 rounded-xl shadow-sm border border-slate-200 border-l-4 transition-all ${
+                        task.status === 'Completada' ? 'border-l-emerald-500' :
+                        task.status === 'En Progreso' ? 'border-l-blue-500' :
+                        overdue ? 'border-l-red-500' :
+                        dueToday ? 'border-l-amber-500' :
+                        'border-l-slate-300'
                       }`}
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-100 text-xs font-semibold text-slate-600">
-                        <div className="flex items-center gap-2">
-                          <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded font-bold">
-                            🚜 {rigName || 'Equipo'}
-                          </span>
-                          {locName && (
-                            <>
-                              <span className="text-slate-400">|</span>
-                              <span className="text-slate-600 truncate max-w-[200px]">📍 {locName}</span>
-                            </>
-                          )}
-                        </div>
-
-                        {task.is_persistent && (
-                          <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded-full border border-purple-200">
-                            📢 Campaña Persistente (Multilocación)
-                          </span>
-                        )}
-                      </div>
-
                       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
                         <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h4 className="font-semibold text-slate-900 text-sm">{task.title}</h4>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                          <div className="flex items-start justify-between gap-2">
+                            <h4 className="font-semibold text-slate-900 text-[15px] leading-snug">{task.title}</h4>
+                            <span className={`shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full ${
                               task.status === 'Completada' ? 'bg-emerald-100 text-emerald-800' :
                               task.status === 'En Progreso' ? 'bg-blue-100 text-blue-800' :
-                              overdue ? 'bg-red-100 text-red-800 font-black' :
+                              overdue ? 'bg-red-100 text-red-800' :
+                              dueToday ? 'bg-amber-100 text-amber-800' :
                               'bg-slate-100 text-slate-700'
                             }`}>
-                              {task.status}
+                              {task.status === 'Completada' || task.status === 'En Progreso' ? task.status : overdue ? 'Vencida' : dueToday ? 'Vence hoy' : task.status}
                             </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-600">
+                            {!inGroup && <span className="inline-flex items-center gap-1 font-semibold text-slate-800"><HardHat className="w-3.5 h-3.5 text-slate-500" />{rigName || 'Equipo'}</span>}
+                            {locName && <span className="inline-flex items-center gap-1 min-w-0"><MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" /><span className="truncate max-w-[160px]">{locName}</span></span>}
+                            <span className={`inline-flex items-center gap-1 ${overdue ? 'text-red-700 font-semibold' : dueToday ? 'text-amber-700 font-semibold' : ''}`}>
+                              <Calendar className="w-3.5 h-3.5" />{formatDateDDMMYYYY(task.scheduled_date)}
+                            </span>
+                            {task.is_persistent && (
+                              <span className="text-[11px] bg-purple-100 text-purple-800 font-semibold px-2 py-0.5 rounded-full">Campaña</span>
+                            )}
                           </div>
 
                           {task.description && (
@@ -3357,10 +3339,12 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => openTaskEditModal(task)}
-                            className="flex items-center gap-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
+                            className={`flex items-center gap-1 text-xs font-bold px-3 py-2 rounded-lg transition ${
+                              task.status === 'Completada' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-amber-600 hover:bg-amber-700 text-white shadow-sm'
+                            }`}
                           >
                             <Edit2 className="w-3.5 h-3.5" />
-                            {task.status === 'Completada' ? 'Editar / Corregir' : 'Gestionar / Cerrar'}
+                            {task.status === 'Completada' ? 'Editar' : 'Gestionar'}
                           </button>
 
                           {isAdmin && (
@@ -3371,20 +3355,9 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-between gap-3 text-xs pt-3 mt-2 border-t border-slate-100">
-                        <span className={`flex items-center gap-1 font-medium ${
-                          overdue ? 'text-red-600 font-bold' :
-                          dueToday ? 'text-amber-700 font-bold' :
-                          'text-slate-600'
-                        }`}>
-                          <Calendar className="w-3.5 h-3.5" />
-                          Prog: {formatDateDDMMYYYY(task.scheduled_date)} 
-                          {overdue && ' ⚠️ VENCIDA'}
-                          {dueToday && ' ⏳ VENCE HOY'}
-                        </span>
-
+                      <div className="flex flex-wrap items-center justify-between gap-3 text-xs empty:hidden">
                         {(task.completed_date || task.closed_work_date) && (
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-1 text-emerald-700 font-semibold bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
+                          <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-1 text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded">
                             <span className="flex items-center gap-1">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                               Cerrada por: <strong>{task.completed_by_name || 'Inspector'}</strong> el {formatDateDDMMYYYY(task.closed_work_date || task.completed_date)}
@@ -3399,8 +3372,43 @@ export default function App() {
                       </div>
                     </div>
                   );
-                })
-              )}
+                };
+                if (selectedRig !== 'ALL') return sortedTasks.map(t => renderTask(t));
+
+                // Vista consolidada: agrupar por equipo (los grupos con vencidas primero y abiertos)
+                const groups = {};
+                sortedTasks.forEach(t => {
+                  const name = t.rig_locations?.rigs?.name || t.rigs?.name || 'Equipo';
+                  (groups[name] = groups[name] || []).push(t);
+                });
+                const info = Object.entries(groups).map(([name, list]) => ({
+                  name, list,
+                  overdue: list.filter(t => isOverdue(t.scheduled_date, t.status)).length,
+                  pending: list.filter(t => t.status !== 'Completada').length,
+                })).sort((a, b) => (b.overdue - a.overdue) || a.name.localeCompare(b.name));
+                return info.map(g => {
+                  const open = openRigGroups[g.name] ?? g.overdue > 0;
+                  return (
+                    <div key={g.name} className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setOpenRigGroups(o => ({ ...o, [g.name]: !open }))}
+                        className="w-full flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-3.5 py-3 shadow-sm text-left"
+                      >
+                        <span className="flex items-center gap-2 font-bold text-slate-800">
+                          <HardHat className="w-4 h-4 text-amber-600" />{g.name}
+                        </span>
+                        <span className="flex items-center gap-2 text-xs">
+                          {g.overdue > 0 && <span className="bg-red-100 text-red-800 font-bold px-2 py-0.5 rounded-full">{g.overdue} vencida{g.overdue > 1 ? 's' : ''}</span>}
+                          <span className="text-slate-500">{g.list.length} tarea{g.list.length > 1 ? 's' : ''}</span>
+                          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+                        </span>
+                      </button>
+                      {open && <div className="space-y-2 pl-2 border-l-2 border-slate-200 ml-2">{g.list.map(t => renderTask(t, true))}</div>}
+                    </div>
+                  );
+                });
+              })()}
             </section>
           </>
         )}
