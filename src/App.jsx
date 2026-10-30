@@ -10,7 +10,7 @@ import {
   PlusCircle, Truck, Calendar, Settings, ClipboardList, 
   Trash2, HardHat, Layers, Edit2, Archive, BarChart3, X, LogOut, User, Lock,
   BookOpen, FileDown, Plus, AlertOctagon, Car, BarChart2, Filter, MessageSquare, CheckSquare, Users,
-  Award, Send, Eye, Clock, UserCheck, ChevronDown, FileText, WifiOff, Warehouse
+  Award, Send, Eye, Clock, UserCheck, ChevronDown, FileText, WifiOff, Warehouse, MoreHorizontal, MapPin, Globe
 } from 'lucide-react';
 
 export default function App() {
@@ -31,6 +31,9 @@ export default function App() {
 
   // Autenticación
   const [session, setSession] = useState(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [openRigGroups, setOpenRigGroups] = useState({});
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
   const [profiles, setProfiles] = useState([]);
   const [authEmail, setAuthEmail] = useState('');
@@ -308,7 +311,7 @@ export default function App() {
   ];
 
   const monthOptions = [
-    { value: 'ALL', label: 'Todos los Meses' },
+    { value: 'ALL', label: 'Todos' },
     { value: '01', label: 'Enero' },
     { value: '02', label: 'Febrero' },
     { value: '03', label: 'Marzo' },
@@ -2260,18 +2263,20 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
         <div className="bg-white w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl space-y-6">
-          <div className="text-center space-y-2">
-            <div className="inline-flex p-3 bg-amber-100 rounded-full text-amber-600 mb-1">
-              <ShieldCheck className="w-10 h-10" />
+          <div className="text-center space-y-3">
+            <img src="/marbar-logo.jpg" alt="MARBAR" className="mx-auto h-14 w-auto" />
+            <div>
+              <h1 className="text-lg font-bold text-slate-900 flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-5 h-5 text-amber-600" /> HSE Perforación
+              </h1>
+              <p className="text-sm text-slate-500">Control HSE y operaciones en campo</p>
             </div>
-            <h1 className="text-xl font-bold text-slate-900">MARBAR S.A.</h1>
-            <p className="text-xs text-slate-500">Control HSE y Operaciones en Perforación</p>
           </div>
 
           <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
             {isRegistering && (
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre Completo:</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre completo</label>
                 <input
                   type="text"
                   placeholder="Ej: Juan Pérez"
@@ -2284,7 +2289,7 @@ export default function App() {
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Correo Electrónico:</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Correo electrónico</label>
               <input
                 type="email"
                 placeholder="usuario@marbar.com.ar"
@@ -2296,15 +2301,27 @@ export default function App() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña:</label>
-              <input
-                type="password"
-                placeholder="••••••••"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                required
-                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  required
+                  minLength={isRegistering ? 8 : undefined}
+                  autoComplete={isRegistering ? 'new-password' : 'current-password'}
+                  className="w-full text-sm p-3 pr-11 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  className={`absolute inset-y-0 right-0 px-3 ${showPassword ? 'text-amber-600' : 'text-slate-400'}`}
+                >
+                  <Eye className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <button
@@ -2312,7 +2329,7 @@ export default function App() {
               disabled={authLoading}
               className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg text-sm transition disabled:opacity-50"
             >
-              {authLoading ? 'Verificando...' : isRegistering ? 'Solicitar acceso' : 'Iniciar Sesión'}
+              {authLoading ? 'Verificando...' : isRegistering ? 'Solicitar acceso' : 'Iniciar sesión'}
             </button>
           </form>
 
@@ -2410,23 +2427,62 @@ export default function App() {
         </div>
       </header>
 
-      <nav
-        className="sm:hidden fixed bottom-0 inset-x-0 z-30 bg-slate-900 border-t border-slate-700 grid"
-        style={{ gridTemplateColumns: `repeat(${navTabs.length}, minmax(0, 1fr))`, paddingBottom: 'env(safe-area-inset-bottom)' }}
-      >
-        {navTabs.map(({ key, short, Icon, iconClass }) => (
+      {(() => {
+        // Celular: hasta 5 botones; si hay más pestañas, las últimas van al menú "Más"
+        const mainTabs = navTabs.length > 5 ? navTabs.slice(0, 4) : navTabs;
+        const extraTabs = navTabs.length > 5 ? navTabs.slice(4) : [];
+        const extraActive = extraTabs.some(t => t.key === activeTab);
+        const go = (key) => { setActiveTab(key); setMoreOpen(false); window.scrollTo({ top: 0 }); };
+        const tabBtn = (key, label, Icon, active, onClick, badge) => (
           <button
             key={key}
-            onClick={() => { setActiveTab(key); window.scrollTo({ top: 0 }); }}
-            className={`flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-semibold transition ${
-              activeTab === key ? 'text-amber-400' : 'text-slate-400'
+            onClick={onClick}
+            aria-label={label}
+            className={`relative flex flex-col items-center justify-center gap-1 min-h-[56px] py-2 text-[11px] font-semibold transition ${
+              active ? 'text-amber-400' : 'text-slate-300'
             }`}
           >
-            <Icon className={`w-5 h-5 ${activeTab === key ? '' : (iconClass || '')}`} />
-            {short}
+            {active && <span className="absolute top-0 inset-x-4 h-0.5 rounded-full bg-amber-400" />}
+            <Icon className="w-6 h-6" />
+            <span className="truncate max-w-full px-1">{label}</span>
+            {badge > 0 && <span className="absolute top-1.5 right-1/2 translate-x-4 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] leading-4 font-bold">{badge}</span>}
           </button>
-        ))}
-      </nav>
+        );
+        return (
+          <>
+            {moreOpen && extraTabs.length > 0 && (
+              <div className="sm:hidden fixed inset-0 z-30 bg-slate-900/50" onClick={() => setMoreOpen(false)}>
+                <div
+                  className="absolute inset-x-0 bottom-0 bg-white rounded-t-2xl p-4 shadow-2xl space-y-1"
+                  style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-slate-300" />
+                  {extraTabs.map(({ key, label, Icon }) => (
+                    <button
+                      key={key}
+                      onClick={() => go(key)}
+                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-base font-semibold ${
+                        activeTab === key ? 'bg-amber-50 text-amber-800' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Icon className="w-5 h-5" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <nav
+              className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-900 border-t border-slate-700 grid"
+              style={{ gridTemplateColumns: `repeat(${mainTabs.length + (extraTabs.length ? 1 : 0)}, minmax(0, 1fr))`, paddingBottom: 'env(safe-area-inset-bottom)' }}
+            >
+              {mainTabs.map(({ key, short, Icon }) => tabBtn(key, short, Icon, activeTab === key, () => go(key)))}
+              {extraTabs.length > 0 && tabBtn('mas', 'Más', MoreHorizontal, extraActive || moreOpen, () => setMoreOpen(o => !o), pendingCount)}
+            </nav>
+          </>
+        );
+      })()}
 
       <main className="max-w-5xl mx-auto p-3 sm:p-4 pb-24 sm:pb-4 space-y-4">
         {!isOnline && (
@@ -2505,51 +2561,41 @@ export default function App() {
         {/* OPERACIONES */}
         {activeTab === 'operaciones' && (
           <>
-            <section className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-              <div className="bg-slate-900 text-white p-3 rounded-xl shadow-sm col-span-2 sm:col-span-1">
-                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider block">Equipos Activos</span>
-                <span className="text-xl font-black">{activeRigsCount}</span>
-                <span className="text-[10px] text-slate-400 block">en operación</span>
+            <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 space-y-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span><strong className="text-slate-800">{activeRigsCount}</strong> equipos activos · <strong className="text-slate-800">{totalTasksCount}</strong> tareas en el plan</span>
               </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Tareas del Plan</span>
-                <span className="text-xl font-black text-slate-800">{totalTasksCount}</span>
-              </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider block">Pendientes</span>
-                <span className="text-xl font-black text-blue-700">{pendingTasksCount}</span>
-              </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-red-600 uppercase tracking-wider block">Vencidas</span>
-                <span className="text-xl font-black text-red-600">{overdueTasksCount}</span>
-              </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider block">Completadas</span>
-                <span className="text-xl font-black text-emerald-700">{completedTasksCount}</span>
-              </div>
-              <div
-                className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm col-span-2 sm:col-span-1"
-                title="Completadas sobre tareas exigibles a hoy (programadas hasta hoy o ya cerradas). Las tareas a futuro no restan."
-              >
-                <span className="text-[11px] font-bold text-amber-600 uppercase tracking-wider block">Cumplimiento</span>
-                <div className="flex items-center gap-1">
-                  <span className="text-xl font-black text-slate-800">{complianceRate}%</span>
-                  <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                    <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${complianceRate}%` }}></div>
-                  </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-slate-50 py-2">
+                  <span className="block text-2xl font-black text-slate-800 leading-tight">{pendingTasksCount}</span>
+                  <span className="block text-xs font-semibold text-slate-600">Pendientes</span>
                 </div>
-                <span className="text-[10px] text-slate-500 block">
-                  {completedExigibleCount}/{exigibleTasksCount} exigibles · a término {onTimeRate}%
-                </span>
+                <div className={`rounded-lg py-2 ${overdueTasksCount > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+                  <span className={`block text-2xl font-black leading-tight ${overdueTasksCount > 0 ? 'text-red-600' : 'text-slate-800'}`}>{overdueTasksCount}</span>
+                  <span className={`block text-xs font-semibold ${overdueTasksCount > 0 ? 'text-red-700' : 'text-slate-600'}`}>Vencidas</span>
+                </div>
+                <div className="rounded-lg bg-slate-50 py-2">
+                  <span className="block text-2xl font-black text-emerald-700 leading-tight">{completedTasksCount}</span>
+                  <span className="block text-xs font-semibold text-slate-600">Completadas</span>
+                </div>
+              </div>
+              <div title="Completadas sobre tareas exigibles a hoy (programadas hasta hoy o ya cerradas). Las tareas a futuro no restan.">
+                <div className="flex items-baseline justify-between text-xs mb-1">
+                  <span className="font-semibold text-slate-700">Cumplimiento <strong className="text-base text-slate-900">{complianceRate}%</strong></span>
+                  <span className="text-slate-500">{completedExigibleCount}/{exigibleTasksCount} exigibles · a término {onTimeRate}%</span>
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div className={`h-2 rounded-full ${complianceRate >= 80 ? 'bg-emerald-500' : complianceRate >= 50 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${complianceRate}%` }}></div>
+                </div>
               </div>
             </section>
 
             {/* SECCIÓN FILTRAR POR EQUIPO: CON LOCACIÓN Y FECHA DE CARGA */}
             <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex justify-between items-center">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                  <Layers className="w-3.5 h-3.5" />
-                  Filtrar por Equipo (Locación y Fecha de Spud-in)
+                <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-slate-500" />
+                  Equipo
                 </label>
                 {isAdmin && selectedRig !== 'ALL' && (
                   <button
@@ -2566,7 +2612,7 @@ export default function App() {
                     className="flex items-center gap-1 text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold py-1.5 px-3 rounded-lg transition"
                   >
                     <Truck className="w-3.5 h-3.5" />
-                    Mover Equipo (Nuevo Pozo)
+                    Mover a nuevo pozo
                   </button>
                 )}
               </div>
@@ -2590,8 +2636,8 @@ export default function App() {
                     >
                       <span className="truncate">
                         {selRigObj
-                          ? <>🚜 {selRigObj.name} {selLoc ? `| 📍 ${selLoc.location_name} (desde ${formatDateDDMMYYYY(selLoc.start_date)})` : '| (Sin locación activa / En DTM)'}</>
-                          : '🌐 Ver Todos los Equipos (Consolidado General)'}
+                          ? <span className="inline-flex items-center gap-1.5"><HardHat className="w-4 h-4 text-amber-600 shrink-0" />{selRigObj.name} <span className="font-normal text-slate-500">{selLoc ? `· ${selLoc.location_name} (desde ${formatDateDDMMYYYY(selLoc.start_date)})` : '· Sin locación activa / En DTM'}</span></span>
+                          : <span className="inline-flex items-center gap-1.5"><Globe className="w-4 h-4 text-slate-500 shrink-0" />Todos los equipos</span>}
                       </span>
                       <span className="flex items-center gap-2 shrink-0">
                         {renderAgeBadge(selAge)}
@@ -2606,7 +2652,7 @@ export default function App() {
                           onClick={() => { setSelectedRig('ALL'); setRigPickerOpen(false); }}
                           className={`w-full text-left px-3 py-2.5 text-sm font-semibold hover:bg-slate-50 border-b border-slate-100 ${selectedRig === 'ALL' ? 'bg-amber-50' : ''}`}
                         >
-                          🌐 Ver Todos los Equipos (Consolidado General)
+                          Todos los equipos (consolidado)
                         </button>
                         {(rigs || []).map((rig) => {
                           const loc = activeLocationMap[rig.id];
@@ -2619,9 +2665,9 @@ export default function App() {
                               className={`w-full flex items-center justify-between gap-2 text-left px-3 py-2.5 text-sm border-b border-slate-100 border-l-4 ${age.border} hover:bg-slate-50 ${selectedRig === rig.id ? 'bg-amber-50' : ''}`}
                             >
                               <span className="min-w-0">
-                                <span className="font-semibold text-slate-800 block truncate">🚜 {rig.name}</span>
+                                <span className="font-semibold text-slate-800 block truncate">{rig.name}</span>
                                 <span className="text-[11px] text-slate-500 block truncate">
-                                  {loc ? `📍 ${loc.location_name} · desde ${formatDateDDMMYYYY(loc.start_date)}` : 'Sin locación activa / En DTM'}
+                                  {loc ? `${loc.location_name} · desde ${formatDateDDMMYYYY(loc.start_date)}` : 'Sin locación activa / En DTM'}
                                 </span>
                               </span>
                               {renderAgeBadge(age)}
@@ -2651,7 +2697,7 @@ export default function App() {
                         <strong className="text-slate-800 text-sm block mt-0.5">{currentLocation.location_name}</strong>
                       </div>
                       <span className="text-slate-500 font-medium text-[11px] mt-2 block">
-                        📅 Spud-in: {formatDateDDMMYYYY(currentLocation.start_date)}
+                        Spud-in: {formatDateDDMMYYYY(currentLocation.start_date)}
                       </span>
                     </div>
                   ) : (
@@ -2747,7 +2793,7 @@ export default function App() {
                 className="flex items-center gap-1 text-xs bg-slate-800 hover:bg-slate-700 text-white font-semibold py-1.5 px-3 rounded-lg transition ml-auto"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
-                + Tarea Eventual / Difusión
+                Tarea eventual / difusión
               </button>
             </section>
 
@@ -3149,8 +3195,8 @@ export default function App() {
                 <div className="bg-white p-8 rounded-xl text-center text-slate-400 text-sm border border-dashed border-slate-300">
                   No hay tareas en esta categoría.
                 </div>
-              ) : (
-                sortedTasks.map((task) => {
+              ) : (() => {
+                const renderTask = (task, inGroup = false) => {
                   const overdue = isOverdue(task.scheduled_date, task.status);
                   const dueToday = isDueToday(task.scheduled_date, task.status);
                   const rigName = task.rig_locations?.rigs?.name || task.rigs?.name;
@@ -3160,46 +3206,37 @@ export default function App() {
                   return (
                     <div 
                       key={task.id} 
-                      className={`bg-white p-4 rounded-xl shadow-sm border transition-all ${
-                        task.status === 'Completada' ? 'border-emerald-200 bg-emerald-50/20 opacity-95' :
-                        task.status === 'En Progreso' ? 'border-blue-300 bg-blue-50/20' :
-                        overdue ? 'border-red-400 bg-red-50/40' :
-                        dueToday ? 'border-amber-400 bg-amber-50/40' :
-                        'border-slate-200'
+                      className={`bg-white px-3.5 py-3 rounded-xl shadow-sm border border-slate-200 border-l-4 transition-all ${
+                        task.status === 'Completada' ? 'border-l-emerald-500' :
+                        task.status === 'En Progreso' ? 'border-l-blue-500' :
+                        overdue ? 'border-l-red-500' :
+                        dueToday ? 'border-l-amber-500' :
+                        'border-l-slate-300'
                       }`}
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-100 text-xs font-semibold text-slate-600">
-                        <div className="flex items-center gap-2">
-                          <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded font-bold">
-                            🚜 {rigName || 'Equipo'}
-                          </span>
-                          {locName && (
-                            <>
-                              <span className="text-slate-400">|</span>
-                              <span className="text-slate-600 truncate max-w-[200px]">📍 {locName}</span>
-                            </>
-                          )}
-                        </div>
-
-                        {task.is_persistent && (
-                          <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded-full border border-purple-200">
-                            📢 Campaña Persistente (Multilocación)
-                          </span>
-                        )}
-                      </div>
-
                       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
                         <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h4 className="font-semibold text-slate-900 text-sm">{task.title}</h4>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                          <div className="flex items-start justify-between gap-2">
+                            <h4 className="font-semibold text-slate-900 text-[15px] leading-snug">{task.title}</h4>
+                            <span className={`shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full ${
                               task.status === 'Completada' ? 'bg-emerald-100 text-emerald-800' :
                               task.status === 'En Progreso' ? 'bg-blue-100 text-blue-800' :
-                              overdue ? 'bg-red-100 text-red-800 font-black' :
+                              overdue ? 'bg-red-100 text-red-800' :
+                              dueToday ? 'bg-amber-100 text-amber-800' :
                               'bg-slate-100 text-slate-700'
                             }`}>
-                              {task.status}
+                              {task.status === 'Completada' || task.status === 'En Progreso' ? task.status : overdue ? 'Vencida' : dueToday ? 'Vence hoy' : task.status}
                             </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-600">
+                            {!inGroup && <span className="inline-flex items-center gap-1 font-semibold text-slate-800"><HardHat className="w-3.5 h-3.5 text-slate-500" />{rigName || 'Equipo'}</span>}
+                            {locName && <span className="inline-flex items-center gap-1 min-w-0"><MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" /><span className="truncate max-w-[160px]">{locName}</span></span>}
+                            <span className={`inline-flex items-center gap-1 ${overdue ? 'text-red-700 font-semibold' : dueToday ? 'text-amber-700 font-semibold' : ''}`}>
+                              <Calendar className="w-3.5 h-3.5" />{formatDateDDMMYYYY(task.scheduled_date)}
+                            </span>
+                            {task.is_persistent && (
+                              <span className="text-[11px] bg-purple-100 text-purple-800 font-semibold px-2 py-0.5 rounded-full">Campaña</span>
+                            )}
                           </div>
 
                           {task.description && (
@@ -3317,10 +3354,12 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => openTaskEditModal(task)}
-                            className="flex items-center gap-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg shadow-sm transition"
+                            className={`flex items-center gap-1 text-xs font-bold px-3 py-2 rounded-lg transition ${
+                              task.status === 'Completada' ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-amber-600 hover:bg-amber-700 text-white shadow-sm'
+                            }`}
                           >
                             <Edit2 className="w-3.5 h-3.5" />
-                            {task.status === 'Completada' ? 'Editar / Corregir' : 'Gestionar / Cerrar'}
+                            {task.status === 'Completada' ? 'Editar' : 'Gestionar'}
                           </button>
 
                           {isAdmin && (
@@ -3331,20 +3370,9 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-between gap-3 text-xs pt-3 mt-2 border-t border-slate-100">
-                        <span className={`flex items-center gap-1 font-medium ${
-                          overdue ? 'text-red-600 font-bold' :
-                          dueToday ? 'text-amber-700 font-bold' :
-                          'text-slate-600'
-                        }`}>
-                          <Calendar className="w-3.5 h-3.5" />
-                          Prog: {formatDateDDMMYYYY(task.scheduled_date)} 
-                          {overdue && ' ⚠️ VENCIDA'}
-                          {dueToday && ' ⏳ VENCE HOY'}
-                        </span>
-
+                      <div className="flex flex-wrap items-center justify-between gap-3 text-xs empty:hidden">
                         {(task.completed_date || task.closed_work_date) && (
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-1 text-emerald-700 font-semibold bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
+                          <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-1 text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded">
                             <span className="flex items-center gap-1">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                               Cerrada por: <strong>{task.completed_by_name || 'Inspector'}</strong> el {formatDateDDMMYYYY(task.closed_work_date || task.completed_date)}
@@ -3359,8 +3387,43 @@ export default function App() {
                       </div>
                     </div>
                   );
-                })
-              )}
+                };
+                if (selectedRig !== 'ALL') return sortedTasks.map(t => renderTask(t));
+
+                // Vista consolidada: agrupar por equipo (los grupos con vencidas primero y abiertos)
+                const groups = {};
+                sortedTasks.forEach(t => {
+                  const name = t.rig_locations?.rigs?.name || t.rigs?.name || 'Equipo';
+                  (groups[name] = groups[name] || []).push(t);
+                });
+                const info = Object.entries(groups).map(([name, list]) => ({
+                  name, list,
+                  overdue: list.filter(t => isOverdue(t.scheduled_date, t.status)).length,
+                  pending: list.filter(t => t.status !== 'Completada').length,
+                })).sort((a, b) => (b.overdue - a.overdue) || a.name.localeCompare(b.name));
+                return info.map(g => {
+                  const open = openRigGroups[g.name] ?? g.overdue > 0;
+                  return (
+                    <div key={g.name} className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setOpenRigGroups(o => ({ ...o, [g.name]: !open }))}
+                        className="w-full flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-3.5 py-3 shadow-sm text-left"
+                      >
+                        <span className="flex items-center gap-2 font-bold text-slate-800">
+                          <HardHat className="w-4 h-4 text-amber-600" />{g.name}
+                        </span>
+                        <span className="flex items-center gap-2 text-xs">
+                          {g.overdue > 0 && <span className="bg-red-100 text-red-800 font-bold px-2 py-0.5 rounded-full">{g.overdue} vencida{g.overdue > 1 ? 's' : ''}</span>}
+                          <span className="text-slate-500">{g.list.length} tarea{g.list.length > 1 ? 's' : ''}</span>
+                          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+                        </span>
+                      </button>
+                      {open && <div className="space-y-2 pl-2 border-l-2 border-slate-200 ml-2">{g.list.map(t => renderTask(t, true))}</div>}
+                    </div>
+                  );
+                });
+              })()}
             </section>
           </>
         )}
@@ -3369,70 +3432,29 @@ export default function App() {
         {activeTab === 'guardia' && (
           <div className="space-y-4">
             {/* TARJETAS DE CONTEO (SE ACTUALIZAN SEGÚN MODO "PERÍODO" O "HISTORIAL COMPLETO") */}
-            <section className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
-              <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
-                <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Días en DTM</span>
-                <span className="text-xl font-black text-amber-950">{activityStats.dtm}</span>
-                <span className="text-[9px] text-amber-700 block">
-                  {shiftViewMode === 'HISTORIAL' ? 'histórico total' : 'en el período'}
-                </span>
+            <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-slate-900 text-white rounded-lg px-3 py-2">
+                  <span className="block text-2xl font-black leading-tight">{uniqueWorkDaysInLogs}</span>
+                  <span className="block text-xs text-slate-300">Días en campo · {shiftViewMode === 'HISTORIAL' ? 'histórico' : 'período'}</span>
+                </div>
+                <div className="bg-amber-50 text-amber-950 rounded-lg px-3 py-2">
+                  <span className="block text-2xl font-black leading-tight">{activityStats.dtm}</span>
+                  <span className="block text-xs text-amber-800">Días en DTM</span>
+                </div>
               </div>
-              <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Act. Planificadas</span>
-                <span className="text-xl font-black text-emerald-950">{activityStats.plan}</span>
-                <span className="text-[9px] text-emerald-700 block">actividades</span>
-              </div>
-              <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
-                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Simulacros</span>
-                <span className="text-xl font-black text-blue-950">{activityStats.drill}</span>
-                <span className="text-[9px] text-blue-700 block">ejecutados</span>
-              </div>
-              <div className="bg-purple-50 p-2.5 rounded-xl border border-purple-200">
-                <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">Reuniones HSE</span>
-                <span className="text-xl font-black text-purple-950">{activityStats.meeting}</span>
-                <span className="text-[9px] text-purple-700 block">reuniones</span>
-              </div>
-              <div className="bg-teal-50 p-2.5 rounded-xl border border-teal-200">
-                <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">EcoTour</span>
-                <span className="text-xl font-black text-teal-950">{activityStats.ecotour}</span>
-                <span className="text-[9px] text-teal-700 block">ambientales</span>
-              </div>
-              <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
-                <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">Asist. Base</span>
-                <span className="text-xl font-black text-indigo-950">{activityStats.base}</span>
-                <span className="text-[9px] text-indigo-700 block">operativa</span>
-              </div>
-              <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-                <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider block">Inspecciones</span>
-                <span className="text-xl font-black text-rose-950">{activityStats.inspection}</span>
-                <span className="text-[9px] text-rose-700 block">auditorías</span>
-              </div>
-              <div className="bg-cyan-50 p-2.5 rounded-xl border border-cyan-200">
-                <span className="text-[10px] font-bold text-cyan-800 uppercase tracking-wider block">Capacitación</span>
-                <span className="text-xl font-black text-cyan-950">{activityStats.induction}</span>
-                <span className="text-[9px] text-cyan-700 block">inducciones</span>
-              </div>
-              <div className="bg-orange-50 p-2.5 rounded-xl border border-orange-200">
-                <span className="text-[10px] font-bold text-orange-800 uppercase tracking-wider block">Visita Gral.</span>
-                <span className="text-xl font-black text-orange-950">{activityStats.visita}</span>
-                <span className="text-[9px] text-orange-700 block">visitas</span>
-              </div>
-              <div className="bg-fuchsia-50 p-2.5 rounded-xl border border-fuchsia-200">
-                <span className="text-[10px] font-bold text-fuchsia-800 uppercase tracking-wider block">Difusiones</span>
-                <span className="text-xl font-black text-fuchsia-950">{activityStats.difusion}</span>
-                <span className="text-[9px] text-fuchsia-700 block">temáticas</span>
-              </div>
-              <div className="bg-slate-100 p-2.5 rounded-xl border border-slate-200">
-                <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">Otras</span>
-                <span className="text-xl font-black text-slate-900">{activityStats.otro}</span>
-                <span className="text-[9px] text-slate-500 block">actividades</span>
-              </div>
-              <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-sm">
-                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Días en Campo</span>
-                <span className="text-xl font-black">{uniqueWorkDaysInLogs}</span>
-                <span className="text-[9px] text-slate-400 block">
-                  {shiftViewMode === 'HISTORIAL' ? 'jornadas históricas' : 'en el período'}
-                </span>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                {[
+                  ['Planificadas', activityStats.plan], ['Simulacros', activityStats.drill], ['Reuniones HSE', activityStats.meeting],
+                  ['EcoTour', activityStats.ecotour], ['Asist. base', activityStats.base], ['Inspecciones', activityStats.inspection],
+                  ['Capacitación', activityStats.induction], ['Visita gral.', activityStats.visita], ['Difusiones', activityStats.difusion],
+                  ['Otras', activityStats.otro],
+                ].map(([label, n]) => (
+                  <div key={label} className={`rounded-lg px-2 py-1.5 text-center ${n > 0 ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+                    <span className={`block text-lg font-black leading-tight ${n > 0 ? 'text-emerald-800' : 'text-slate-400'}`}>{n}</span>
+                    <span className={`block text-[11px] leading-tight ${n > 0 ? 'text-emerald-900 font-semibold' : 'text-slate-500'}`}>{label}</span>
+                  </div>
+                ))}
               </div>
             </section>
 
@@ -3441,7 +3463,7 @@ export default function App() {
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
                 <Clock className="w-4 h-4 text-blue-600" />
                 <div>
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  <h3 className="text-sm font-bold text-slate-900">
                     Control de Cobertura y Última Visita por Equipo
                   </h3>
                   <p className="text-[11px] text-slate-500">
@@ -3456,7 +3478,7 @@ export default function App() {
                   return (
                     <div key={r.id} className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
                       <div>
-                        <strong className="text-slate-800 block text-sm">🚜 {r.name}</strong>
+                        <strong className="text-slate-800 block text-sm">{r.name}</strong>
                         <span className="text-slate-500 text-[11px] block mt-0.5">
                           {stats.totalVisits} {stats.totalVisits === 1 ? 'visita cargada' : 'visitas cargadas'}
                         </span>
@@ -3495,7 +3517,7 @@ export default function App() {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
+                  <h2 className="text-base font-bold text-slate-900">
                     Diario de Guardia (Diagrama 14x14) - MARBAR S.A.
                   </h2>
                   <p className="text-xs text-slate-500">
@@ -3509,7 +3531,7 @@ export default function App() {
                     className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-3 rounded-lg transition shadow-sm"
                   >
                     <Plus className="w-4 h-4" />
-                    + Actividad Diaria
+                    Actividad diaria
                   </button>
                   <button
                     onClick={() => setShowPdfModal(true)}
@@ -3535,7 +3557,7 @@ export default function App() {
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      📅 Período Seleccionado (14x14)
+                      Período Seleccionado (14x14)
                     </button>
                     <button
                       type="button"
@@ -3568,7 +3590,7 @@ export default function App() {
                     onChange={(e) => setShiftInspectorFilter(e.target.value)}
                     className="w-full border border-slate-300 rounded-lg p-2 text-xs bg-white font-semibold text-slate-800"
                   >
-                    <option value="ALL">🌐 Todos los Inspectores</option>
+                    <option value="ALL">Todos los Inspectores</option>
                     {profiles.map((p) => (
                       <option key={p.id} value={p.id}>👤 {p.full_name || p.email}</option>
                     ))}
@@ -3634,11 +3656,11 @@ export default function App() {
                     <div className="flex justify-between items-start">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
-                          📅 {formatDateDDMMYYYY(log?.log_date)}
+                          {formatDateDDMMYYYY(log?.log_date)}
                         </span>
                         {getLogRigNames(log).map((name) => (
                           <span key={name} className="text-xs bg-slate-900 text-white font-bold px-2 py-0.5 rounded">
-                            🚜 {name}
+                            {name}
                           </span>
                         ))}
                         {getLogTypes(log).map((t) => (
@@ -3692,12 +3714,12 @@ export default function App() {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                    <AlertOctagon className="w-4 h-4 text-red-600" />
-                    Registro de Contingencias, Incidentes y Accidentes
+                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <AlertOctagon className="w-5 h-5 text-red-600" />
+                    Contingencias, incidentes y accidentes
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Filtra y analiza los eventos ambientales, vehiculares y personales registrados en campo.
+                    Eventos ambientales, vehiculares y personales registrados en campo.
                   </p>
                 </div>
 
@@ -3706,50 +3728,47 @@ export default function App() {
                   className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3.5 rounded-lg transition shadow-sm"
                 >
                   <Plus className="w-4 h-4" />
-                  + Reportar Evento / Contingencia
+                  Reportar evento
                 </button>
               </div>
 
               {/* BARRA DE FILTROS: EQUIPO, AÑO Y MES */}
-              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-wrap items-center gap-3 text-xs">
-                <span className="font-bold text-slate-700 flex items-center gap-1">
-                  <Filter className="w-3.5 h-3.5 text-red-600" /> Filtrar Contingencias:
-                </span>
+              <div className="grid grid-cols-3 gap-2 text-xs">
 
-                <div className="flex items-center gap-1.5">
-                  <label className="text-slate-500 font-semibold">Equipo:</label>
+                <div className="min-w-0">
+                  <label className="block text-slate-500 font-semibold mb-1">Equipo:</label>
                   <select
                     value={incFilterRig}
                     onChange={(e) => setIncFilterRig(e.target.value)}
-                    className="p-1.5 border border-slate-300 rounded-md bg-white font-semibold text-slate-800"
+                    className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
                   >
-                    <option value="ALL">🌐 Todos los Equipos</option>
+                    <option value="ALL">Todos</option>
                     {(rigs || []).map((r) => (
-                      <option key={r.id} value={r.id}>🚜 {r.name}</option>
+                      <option key={r.id} value={r.id}>{r.name}</option>
                     ))}
                   </select>
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  <label className="text-slate-500 font-semibold">Año:</label>
+                <div className="min-w-0">
+                  <label className="block text-slate-500 font-semibold mb-1">Año:</label>
                   <select
                     value={incFilterYear}
                     onChange={(e) => setIncFilterYear(e.target.value)}
-                    className="p-1.5 border border-slate-300 rounded-md bg-white font-semibold text-slate-800"
+                    className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
                   >
-                    <option value="ALL">Todos los Años</option>
+                    <option value="ALL">Todos</option>
                     {availableIncidentYears.map((yr) => (
                       <option key={yr} value={yr}>{yr}</option>
                     ))}
                   </select>
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  <label className="text-slate-500 font-semibold">Mes:</label>
+                <div className="min-w-0">
+                  <label className="block text-slate-500 font-semibold mb-1">Mes:</label>
                   <select
                     value={incFilterMonth}
                     onChange={(e) => setIncFilterMonth(e.target.value)}
-                    className="p-1.5 border border-slate-300 rounded-md bg-white font-semibold text-slate-800"
+                    className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
                   >
                     {monthOptions.map((m) => (
                       <option key={m.value} value={m.value}>{m.label}</option>
@@ -3760,53 +3779,37 @@ export default function App() {
                 {(incFilterYear !== 'ALL' || incFilterMonth !== 'ALL' || incFilterRig !== 'ALL') && (
                   <button
                     onClick={() => { setIncFilterYear('ALL'); setIncFilterMonth('ALL'); setIncFilterRig('ALL'); }}
-                    className="text-[11px] text-red-600 hover:underline font-semibold ml-auto"
+                    className="col-span-3 text-xs text-red-600 hover:underline font-semibold text-right"
                   >
-                    Restablecer Filtros
+                    Quitar filtros
                   </button>
                 )}
               </div>
             </div>
 
             {/* TARJETAS INFORMATIVAS POR TIPO DE EVENTO */}
-            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-              <div className="bg-slate-900 text-white p-3 rounded-xl shadow-sm col-span-2 sm:col-span-1">
-                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block">Total Eventos</span>
-                <span className="text-2xl font-black">{filteredIncidents.length}</span>
-                <span className="text-[10px] text-slate-400 block">
-                  {incFilterRig !== 'ALL' ? (rigs.find(r => r.id === incFilterRig)?.name || 'equipo') : 'todos los equipos'}
-                </span>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+              <div className="bg-slate-900 text-white rounded-lg px-2 py-1.5 text-center">
+                <span className="block text-lg font-black leading-tight">{filteredIncidents.length}</span>
+                <span className="block text-[11px] text-slate-300 leading-tight">Total</span>
               </div>
-              <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block truncate">Ambiental</span>
-                <span className="text-xl font-black text-emerald-950">{incidentTypeStats['Incidente ambiental (derrame)'] || 0}</span>
-                <span className="text-[9px] text-emerald-700 block">derrames</span>
-              </div>
-              <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
-                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block truncate">Vehicular</span>
-                <span className="text-xl font-black text-blue-950">{incidentTypeStats['Accidente vehicular'] || 0}</span>
-                <span className="text-[9px] text-blue-700 block">camionetas/móviles</span>
-              </div>
-              <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
-                <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block truncate">In Itinere</span>
-                <span className="text-xl font-black text-indigo-950">{incidentTypeStats['Accidente In Itinere'] || 0}</span>
-                <span className="text-[9px] text-indigo-700 block">trayectos</span>
-              </div>
-              <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
-                <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block truncate">Personal</span>
-                <span className="text-xl font-black text-amber-950">{incidentTypeStats['Accidente personal'] || 0}</span>
-                <span className="text-[9px] text-amber-700 block">lesiones</span>
-              </div>
-              <div className="bg-red-50 p-2.5 rounded-xl border border-red-200">
-                <span className="text-[10px] font-bold text-red-800 uppercase tracking-wider block truncate">Alto Potencial</span>
-                <span className="text-xl font-black text-red-950">{incidentTypeStats['Incidente de alto potencial'] || 0}</span>
-                <span className="text-[9px] text-red-700 block">cuasi accidentes</span>
-              </div>
+              {[
+                ['Ambiental', 'Incidente ambiental (derrame)'], ['Vehicular', 'Accidente vehicular'], ['In itinere', 'Accidente In Itinere'],
+                ['Personal', 'Accidente personal'], ['Alto potencial', 'Incidente de alto potencial'],
+              ].map(([label, key]) => {
+                const n = incidentTypeStats[key] || 0;
+                return (
+                  <div key={key} className={`rounded-lg px-2 py-1.5 text-center ${n > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+                    <span className={`block text-lg font-black leading-tight ${n > 0 ? 'text-red-700' : 'text-slate-400'}`}>{n}</span>
+                    <span className={`block text-[11px] leading-tight ${n > 0 ? 'text-red-900 font-semibold' : 'text-slate-500'}`}>{label}</span>
+                  </div>
+                );
+              })}
             </div>
 
             {/* EVENTOS POR EQUIPO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                 <Truck className="w-4 h-4 text-amber-600" />
                 Eventos por Equipo ({incFilterYear !== 'ALL' ? `Año ${incFilterYear}` : 'Histórico'})
               </h3>
@@ -3828,7 +3831,7 @@ export default function App() {
                       title={`Clic para filtrar únicamente por ${item.name}`}
                     >
                       <div>
-                        <span className="font-bold text-slate-800 block truncate max-w-[90px]">🚜 {item.name}</span>
+                        <span className="font-bold text-slate-800 block truncate max-w-[90px]">{item.name}</span>
                         <span className="text-[10px] text-slate-400 block">{item.count} {item.count === 1 ? 'evento' : 'eventos'}</span>
                       </div>
                       <span className={`text-sm font-black px-2 py-0.5 rounded ${
@@ -3857,9 +3860,9 @@ export default function App() {
                           🚨 {inc.event_type}
                         </span>
                         <span className="text-xs bg-slate-100 text-slate-800 font-bold px-2 py-0.5 rounded">
-                          🚜 {inc.rig_name}
+                          {inc.rig_name}
                         </span>
-                        <span className="text-xs text-slate-500">📅 {formatDateDDMMYYYY(inc.event_date)}</span>
+                        <span className="text-xs text-slate-500">{formatDateDDMMYYYY(inc.event_date)}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <button onClick={() => openEditIncModal(inc)} className="text-slate-400 hover:text-red-600 p-1" title="Editar evento">
@@ -3890,7 +3893,7 @@ export default function App() {
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <Car className="w-4 h-4 text-blue-600" />
                   Acta de Entrega de Bienes y Recursos (MARBAR S.A.)
                 </h2>
@@ -4087,7 +4090,7 @@ export default function App() {
             </div>
 
             <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-2">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <ClipboardList className="w-4 h-4 text-blue-600" />
                 Historial de actas de entrega ({handoffRecords.length})
               </h3>
@@ -4101,7 +4104,7 @@ export default function App() {
                       <details key={r.id} className="py-2.5">
                         <summary className="flex flex-wrap items-center justify-between gap-2 cursor-pointer list-none">
                           <span className="text-xs text-slate-800">
-                            <strong>📅 {formatDateDDMMYYYY(r.handoff_date)}</strong> · {r.from_name} ➜ {r.to_name}
+                            <strong>{formatDateDDMMYYYY(r.handoff_date)}</strong> · {r.from_name} ➜ {r.to_name}
                             <span className="text-slate-500"> · {(r.items || []).length} bienes</span>
                           </span>
                           {r.received_at ? (
@@ -4149,7 +4152,7 @@ export default function App() {
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div className="flex items-center gap-2">
                   <BarChart3 className="w-5 h-5 text-amber-600" />
-                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                  <h2 className="text-base font-bold text-slate-800">
                     Historial de Pozos Cerrados
                   </h2>
                 </div>
@@ -4179,7 +4182,7 @@ export default function App() {
                   >
                     {pastLocations.map((loc) => (
                       <option key={loc.id} value={loc.id}>
-                        🚜 {loc.rigs?.name} — 📍 {loc.location_name} ({formatDateDDMMYYYY(loc.start_date)} a {formatDateDDMMYYYY(loc.end_date) || 'Cierre'})
+                        {loc.rigs?.name} — {loc.location_name} ({formatDateDDMMYYYY(loc.start_date)} a {formatDateDDMMYYYY(loc.end_date) || 'Cierre'})
                       </option>
                     ))}
                   </select>
@@ -4207,7 +4210,7 @@ export default function App() {
                   })()}
 
                   <div className="divide-y divide-slate-100 pt-3">
-                    <h3 className="text-xs font-bold text-slate-600 uppercase mb-2">Detalle de Actividades</h3>
+                    <h3 className="text-sm font-bold text-slate-600 mb-2">Detalle de Actividades</h3>
                     {(historyTasks || []).map((t) => (
                       <div key={t.id} className="py-2.5 flex justify-between items-center text-xs">
                         <div>
@@ -4252,7 +4255,7 @@ export default function App() {
               <div className="flex items-center gap-2 border-b border-purple-100 pb-2">
                 <Users className="w-5 h-5 text-purple-600" />
                 <div>
-                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                  <h2 className="text-base font-bold text-slate-800">
                     Lanzar Nueva Campaña de Difusión Temática (Persistente)
                   </h2>
                   <p className="text-xs text-slate-500">
@@ -4326,7 +4329,7 @@ export default function App() {
                             onChange={() => toggleBroadcastRig(r.id)}
                             className="rounded text-purple-600 focus:ring-purple-500"
                           />
-                          <span className="font-semibold text-slate-800">🚜 {r.name}</span>
+                          <span className="font-semibold text-slate-800">{r.name}</span>
                         </label>
                       ))}
                     </div>
@@ -4349,7 +4352,7 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-purple-600" />
                   <div>
-                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                    <h2 className="text-base font-bold text-slate-800">
                       Biblioteca de Campañas de Difusión ({campaigns.length})
                     </h2>
                     <p className="text-xs text-slate-500">
@@ -4373,7 +4376,7 @@ export default function App() {
                           <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{camp.description}</p>
                         )}
                         <span className="text-[10px] text-purple-700 font-semibold bg-purple-50 px-2 py-0.5 rounded border border-purple-200 inline-block mt-1">
-                          📅 Fecha Límite: {formatDateDDMMYYYY(camp.target_date)}
+                          Fecha Límite: {formatDateDDMMYYYY(camp.target_date)}
                         </span>
                         {campaignStats[camp.id] && (
                           <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-block mt-1 ml-1.5">
@@ -4413,7 +4416,7 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <BarChart2 className="w-5 h-5 text-amber-600" />
                   <div>
-                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                    <h2 className="text-base font-bold text-slate-800">
                       Panel de Control y Analítica de Inspectores
                     </h2>
                     <p className="text-xs text-slate-500">
@@ -4434,7 +4437,7 @@ export default function App() {
                     onChange={(e) => setAdminSelectedInspector(e.target.value)}
                     className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold"
                   >
-                    <option value="ALL">🌐 Todos los Inspectores (Global)</option>
+                    <option value="ALL">Todos los Inspectores (Global)</option>
                     {profiles.map((p) => (
                       <option key={p.id} value={p.id}>{p.full_name} ({p.email})</option>
                     ))}
@@ -4543,7 +4546,7 @@ export default function App() {
               </div>
 
               <div className="pt-2">
-                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-bold text-slate-700 mb-2">
                   Registro Consolidado de Jornadas ({groupedDaysArray.length} días de campo - {adminStats.totalActivities} actividades)
                 </h3>
 
@@ -4558,7 +4561,7 @@ export default function App() {
                         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
                           <div className="flex items-center gap-2">
                             <span className="text-xs bg-slate-900 text-white font-bold px-2.5 py-1 rounded-md">
-                              📅 {formatDateDDMMYYYY(day.date)}
+                              {formatDateDDMMYYYY(day.date)}
                             </span>
                             <span className="text-xs font-bold text-slate-800">
                               👤 {day.userName}
@@ -4578,7 +4581,7 @@ export default function App() {
                                     🏷️ {getLogTypes(act).join(' + ')}
                                   </span>
                                   <span className="bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded">
-                                    🚜 {getLogRigNames(act).join(' + ')}
+                                    {getLogRigNames(act).join(' + ')}
                                   </span>
                                   {act.created_by_id && act.created_by_id !== act.user_id && (
                                     <span className="text-[10px] text-slate-500">Cargado por: {act.created_by_name}</span>
@@ -4616,7 +4619,7 @@ export default function App() {
             <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
                 <HardHat className="w-5 h-5 text-amber-600" />
-                <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                <h2 className="text-base font-bold text-slate-800">
                   Gestión de Equipos de Perforación
                 </h2>
               </div>
@@ -4671,7 +4674,7 @@ export default function App() {
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                   <div className="flex items-center gap-2">
                     <ClipboardList className="w-5 h-5 text-amber-600" />
-                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                    <h2 className="text-base font-bold text-slate-800">
                       {editingTemplateId ? '✏️ Modificar Tarea del Catálogo' : 'Nueva Tarea al Catálogo'}
                     </h2>
                   </div>
@@ -4836,7 +4839,7 @@ export default function App() {
                       onChange={(e) => setShiftInspectorFilter(e.target.value)}
                       className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
                     >
-                      <option value="ALL">🌐 Todos los Inspectores (Consolidado del período)</option>
+                      <option value="ALL">Todos los Inspectores (Consolidado del período)</option>
                       {profiles.map((p) => (
                         <option key={p.id} value={p.id}>👤 {p.full_name || p.email}</option>
                       ))}
@@ -4946,7 +4949,7 @@ export default function App() {
                       className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-semibold"
                     >
                       {(rigs || []).map((r) => (
-                        <option key={r.id} value={r.id}>🚜 {r.name}</option>
+                        <option key={r.id} value={r.id}>{r.name}</option>
                       ))}
                     </select>
                   </div>
@@ -5061,7 +5064,7 @@ export default function App() {
                       className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-semibold"
                     >
                       {(rigs || []).map((r) => (
-                        <option key={r.id} value={r.id}>🚜 {r.name}</option>
+                        <option key={r.id} value={r.id}>{r.name}</option>
                       ))}
                     </select>
                   </div>
@@ -5250,7 +5253,7 @@ export default function App() {
                           onChange={() => toggleReassignRig(r.id)}
                           className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4"
                         />
-                        <span className="font-semibold text-slate-800">🚜 {r.name}</span>
+                        <span className="font-semibold text-slate-800">{r.name}</span>
                       </label>
                     ))}
                   </div>
@@ -5334,7 +5337,7 @@ export default function App() {
                           onChange={() => toggleAssignRig(r.id)}
                           className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4"
                         />
-                        <span className="font-semibold text-slate-800">🚜 {r.name}</span>
+                        <span className="font-semibold text-slate-800">{r.name}</span>
                       </label>
                     ))}
                   </div>

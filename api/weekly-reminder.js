@@ -16,6 +16,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
+import { timingSafeEqual } from 'node:crypto';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -33,7 +34,14 @@ const todayAR = () => {
 
 const addDays = (iso, n) => new Date(new Date(iso + 'T00:00:00Z').getTime() + n * DAY).toISOString().split('T')[0];
 
-const escapeHtml = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Comparación en tiempo constante del secreto (evita adivinarlo midiendo tiempos de respuesta)
+const safeEqual = (a, b) => {
+  const x = Buffer.from(String(a ?? ''));
+  const y = Buffer.from(String(b ?? ''));
+  return x.length === y.length && timingSafeEqual(x, y);
+};
+
+const escapeHtml =(s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function taskRows(list, today) {
   return list.map(t => {
@@ -74,7 +82,7 @@ export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   const auth = req.headers.authorization || '';
   const key = req.query?.key;
-  if (!secret || (auth !== `Bearer ${secret}` && key !== secret)) {
+  if (!secret || (!safeEqual(auth, `Bearer ${secret}`) && !safeEqual(key, secret))) {
     return res.status(401).json({ error: 'No autorizado' });
   }
 

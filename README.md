@@ -1,16 +1,25 @@
-# React + Vite
+# MARBAR HSE Perforación
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+App web (PWA) de seguimiento HSE de equipos de perforación: plan de tareas por pozo,
+diario 14x14, informes de visita RG.SGI.27, contingencias, bienes, histórico y
+controles de elementos de emergencia en bases.
 
-Currently, two official plugins are available:
+- Frontend: React + Vite + Tailwind, desplegado en Vercel.
+- Datos y usuarios: Supabase (la seguridad depende de las reglas RLS de la base).
+- `api/weekly-reminder.js`: recordatorio semanal por mail (Vercel Cron).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Desarrollo
 
-## React Compiler
+```bash
+npm ci
+npm run dev     # servidor local
+npm run lint
+npm run build
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Scripts SQL (correr en el SQL Editor de Supabase)
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+- `supabase_base.sql` – módulo Bases.
+- `supabase_visit_reports.sql` – registro de informes de visita.
+- `supabase_aprobacion_usuarios.sql` – aprobación de usuarios y rol "Solo Informes".
+- `supabase_auditoria_seguridad.sql` – auditoría de seguridad de solo lectura.
