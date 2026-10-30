@@ -32,6 +32,7 @@ export default function App() {
   // Autenticación
   const [session, setSession] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [openRigGroups, setOpenRigGroups] = useState({});
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
   const [profiles, setProfiles] = useState([]);
@@ -2262,18 +2263,20 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
         <div className="bg-white w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl space-y-6">
-          <div className="text-center space-y-2">
-            <div className="inline-flex p-3 bg-amber-100 rounded-full text-amber-600 mb-1">
-              <ShieldCheck className="w-10 h-10" />
+          <div className="text-center space-y-3">
+            <img src="/marbar-logo.jpg" alt="MARBAR" className="mx-auto h-14 w-auto" />
+            <div>
+              <h1 className="text-lg font-bold text-slate-900 flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-5 h-5 text-amber-600" /> HSE Perforación
+              </h1>
+              <p className="text-sm text-slate-500">Control HSE y operaciones en campo</p>
             </div>
-            <h1 className="text-xl font-bold text-slate-900">MARBAR S.A.</h1>
-            <p className="text-xs text-slate-500">Control HSE y Operaciones en Perforación</p>
           </div>
 
           <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
             {isRegistering && (
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre Completo:</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre completo</label>
                 <input
                   type="text"
                   placeholder="Ej: Juan Pérez"
@@ -2286,7 +2289,7 @@ export default function App() {
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Correo Electrónico:</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Correo electrónico</label>
               <input
                 type="email"
                 placeholder="usuario@marbar.com.ar"
@@ -2298,15 +2301,27 @@ export default function App() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña:</label>
-              <input
-                type="password"
-                placeholder="••••••••"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                required
-                className="w-full text-sm p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Contraseña</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  required
+                  minLength={isRegistering ? 8 : undefined}
+                  autoComplete={isRegistering ? 'new-password' : 'current-password'}
+                  className="w-full text-sm p-3 pr-11 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  className={`absolute inset-y-0 right-0 px-3 ${showPassword ? 'text-amber-600' : 'text-slate-400'}`}
+                >
+                  <Eye className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <button
@@ -2314,7 +2329,7 @@ export default function App() {
               disabled={authLoading}
               className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg text-sm transition disabled:opacity-50"
             >
-              {authLoading ? 'Verificando...' : isRegistering ? 'Solicitar acceso' : 'Iniciar Sesión'}
+              {authLoading ? 'Verificando...' : isRegistering ? 'Solicitar acceso' : 'Iniciar sesión'}
             </button>
           </form>
 
@@ -2621,8 +2636,8 @@ export default function App() {
                     >
                       <span className="truncate">
                         {selRigObj
-                          ? <>🚜 {selRigObj.name} {selLoc ? `| 📍 ${selLoc.location_name} (desde ${formatDateDDMMYYYY(selLoc.start_date)})` : '| (Sin locación activa / En DTM)'}</>
-                          : '🌐 Ver Todos los Equipos (Consolidado General)'}
+                          ? <span className="inline-flex items-center gap-1.5"><HardHat className="w-4 h-4 text-amber-600 shrink-0" />{selRigObj.name} <span className="font-normal text-slate-500">{selLoc ? `· ${selLoc.location_name} (desde ${formatDateDDMMYYYY(selLoc.start_date)})` : '· Sin locación activa / En DTM'}</span></span>
+                          : <span className="inline-flex items-center gap-1.5"><Globe className="w-4 h-4 text-slate-500 shrink-0" />Todos los equipos</span>}
                       </span>
                       <span className="flex items-center gap-2 shrink-0">
                         {renderAgeBadge(selAge)}
@@ -2637,7 +2652,7 @@ export default function App() {
                           onClick={() => { setSelectedRig('ALL'); setRigPickerOpen(false); }}
                           className={`w-full text-left px-3 py-2.5 text-sm font-semibold hover:bg-slate-50 border-b border-slate-100 ${selectedRig === 'ALL' ? 'bg-amber-50' : ''}`}
                         >
-                          🌐 Ver Todos los Equipos (Consolidado General)
+                          Todos los equipos (consolidado)
                         </button>
                         {(rigs || []).map((rig) => {
                           const loc = activeLocationMap[rig.id];
@@ -2650,9 +2665,9 @@ export default function App() {
                               className={`w-full flex items-center justify-between gap-2 text-left px-3 py-2.5 text-sm border-b border-slate-100 border-l-4 ${age.border} hover:bg-slate-50 ${selectedRig === rig.id ? 'bg-amber-50' : ''}`}
                             >
                               <span className="min-w-0">
-                                <span className="font-semibold text-slate-800 block truncate">🚜 {rig.name}</span>
+                                <span className="font-semibold text-slate-800 block truncate">{rig.name}</span>
                                 <span className="text-[11px] text-slate-500 block truncate">
-                                  {loc ? `📍 ${loc.location_name} · desde ${formatDateDDMMYYYY(loc.start_date)}` : 'Sin locación activa / En DTM'}
+                                  {loc ? `${loc.location_name} · desde ${formatDateDDMMYYYY(loc.start_date)}` : 'Sin locación activa / En DTM'}
                                 </span>
                               </span>
                               {renderAgeBadge(age)}
@@ -2682,7 +2697,7 @@ export default function App() {
                         <strong className="text-slate-800 text-sm block mt-0.5">{currentLocation.location_name}</strong>
                       </div>
                       <span className="text-slate-500 font-medium text-[11px] mt-2 block">
-                        📅 Spud-in: {formatDateDDMMYYYY(currentLocation.start_date)}
+                        Spud-in: {formatDateDDMMYYYY(currentLocation.start_date)}
                       </span>
                     </div>
                   ) : (
@@ -2778,7 +2793,7 @@ export default function App() {
                 className="flex items-center gap-1 text-xs bg-slate-800 hover:bg-slate-700 text-white font-semibold py-1.5 px-3 rounded-lg transition ml-auto"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
-                + Tarea Eventual / Difusión
+                Tarea eventual / difusión
               </button>
             </section>
 
@@ -3448,7 +3463,7 @@ export default function App() {
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
                 <Clock className="w-4 h-4 text-blue-600" />
                 <div>
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  <h3 className="text-sm font-bold text-slate-900">
                     Control de Cobertura y Última Visita por Equipo
                   </h3>
                   <p className="text-[11px] text-slate-500">
@@ -3463,7 +3478,7 @@ export default function App() {
                   return (
                     <div key={r.id} className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
                       <div>
-                        <strong className="text-slate-800 block text-sm">🚜 {r.name}</strong>
+                        <strong className="text-slate-800 block text-sm">{r.name}</strong>
                         <span className="text-slate-500 text-[11px] block mt-0.5">
                           {stats.totalVisits} {stats.totalVisits === 1 ? 'visita cargada' : 'visitas cargadas'}
                         </span>
@@ -3502,7 +3517,7 @@ export default function App() {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
+                  <h2 className="text-base font-bold text-slate-900">
                     Diario de Guardia (Diagrama 14x14) - MARBAR S.A.
                   </h2>
                   <p className="text-xs text-slate-500">
@@ -3516,7 +3531,7 @@ export default function App() {
                     className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-3 rounded-lg transition shadow-sm"
                   >
                     <Plus className="w-4 h-4" />
-                    + Actividad Diaria
+                    Actividad diaria
                   </button>
                   <button
                     onClick={() => setShowPdfModal(true)}
@@ -3542,7 +3557,7 @@ export default function App() {
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      📅 Período Seleccionado (14x14)
+                      Período Seleccionado (14x14)
                     </button>
                     <button
                       type="button"
@@ -3575,7 +3590,7 @@ export default function App() {
                     onChange={(e) => setShiftInspectorFilter(e.target.value)}
                     className="w-full border border-slate-300 rounded-lg p-2 text-xs bg-white font-semibold text-slate-800"
                   >
-                    <option value="ALL">🌐 Todos los Inspectores</option>
+                    <option value="ALL">Todos los Inspectores</option>
                     {profiles.map((p) => (
                       <option key={p.id} value={p.id}>👤 {p.full_name || p.email}</option>
                     ))}
@@ -3641,11 +3656,11 @@ export default function App() {
                     <div className="flex justify-between items-start">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
-                          📅 {formatDateDDMMYYYY(log?.log_date)}
+                          {formatDateDDMMYYYY(log?.log_date)}
                         </span>
                         {getLogRigNames(log).map((name) => (
                           <span key={name} className="text-xs bg-slate-900 text-white font-bold px-2 py-0.5 rounded">
-                            🚜 {name}
+                            {name}
                           </span>
                         ))}
                         {getLogTypes(log).map((t) => (
@@ -3794,7 +3809,7 @@ export default function App() {
 
             {/* EVENTOS POR EQUIPO */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                 <Truck className="w-4 h-4 text-amber-600" />
                 Eventos por Equipo ({incFilterYear !== 'ALL' ? `Año ${incFilterYear}` : 'Histórico'})
               </h3>
@@ -3816,7 +3831,7 @@ export default function App() {
                       title={`Clic para filtrar únicamente por ${item.name}`}
                     >
                       <div>
-                        <span className="font-bold text-slate-800 block truncate max-w-[90px]">🚜 {item.name}</span>
+                        <span className="font-bold text-slate-800 block truncate max-w-[90px]">{item.name}</span>
                         <span className="text-[10px] text-slate-400 block">{item.count} {item.count === 1 ? 'evento' : 'eventos'}</span>
                       </div>
                       <span className={`text-sm font-black px-2 py-0.5 rounded ${
@@ -3845,9 +3860,9 @@ export default function App() {
                           🚨 {inc.event_type}
                         </span>
                         <span className="text-xs bg-slate-100 text-slate-800 font-bold px-2 py-0.5 rounded">
-                          🚜 {inc.rig_name}
+                          {inc.rig_name}
                         </span>
-                        <span className="text-xs text-slate-500">📅 {formatDateDDMMYYYY(inc.event_date)}</span>
+                        <span className="text-xs text-slate-500">{formatDateDDMMYYYY(inc.event_date)}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <button onClick={() => openEditIncModal(inc)} className="text-slate-400 hover:text-red-600 p-1" title="Editar evento">
@@ -3878,7 +3893,7 @@ export default function App() {
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <Car className="w-4 h-4 text-blue-600" />
                   Acta de Entrega de Bienes y Recursos (MARBAR S.A.)
                 </h2>
@@ -4075,7 +4090,7 @@ export default function App() {
             </div>
 
             <section className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-2">
-              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <ClipboardList className="w-4 h-4 text-blue-600" />
                 Historial de actas de entrega ({handoffRecords.length})
               </h3>
@@ -4089,7 +4104,7 @@ export default function App() {
                       <details key={r.id} className="py-2.5">
                         <summary className="flex flex-wrap items-center justify-between gap-2 cursor-pointer list-none">
                           <span className="text-xs text-slate-800">
-                            <strong>📅 {formatDateDDMMYYYY(r.handoff_date)}</strong> · {r.from_name} ➜ {r.to_name}
+                            <strong>{formatDateDDMMYYYY(r.handoff_date)}</strong> · {r.from_name} ➜ {r.to_name}
                             <span className="text-slate-500"> · {(r.items || []).length} bienes</span>
                           </span>
                           {r.received_at ? (
@@ -4137,7 +4152,7 @@ export default function App() {
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div className="flex items-center gap-2">
                   <BarChart3 className="w-5 h-5 text-amber-600" />
-                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                  <h2 className="text-base font-bold text-slate-800">
                     Historial de Pozos Cerrados
                   </h2>
                 </div>
@@ -4167,7 +4182,7 @@ export default function App() {
                   >
                     {pastLocations.map((loc) => (
                       <option key={loc.id} value={loc.id}>
-                        🚜 {loc.rigs?.name} — 📍 {loc.location_name} ({formatDateDDMMYYYY(loc.start_date)} a {formatDateDDMMYYYY(loc.end_date) || 'Cierre'})
+                        {loc.rigs?.name} — {loc.location_name} ({formatDateDDMMYYYY(loc.start_date)} a {formatDateDDMMYYYY(loc.end_date) || 'Cierre'})
                       </option>
                     ))}
                   </select>
@@ -4195,7 +4210,7 @@ export default function App() {
                   })()}
 
                   <div className="divide-y divide-slate-100 pt-3">
-                    <h3 className="text-xs font-bold text-slate-600 uppercase mb-2">Detalle de Actividades</h3>
+                    <h3 className="text-sm font-bold text-slate-600 mb-2">Detalle de Actividades</h3>
                     {(historyTasks || []).map((t) => (
                       <div key={t.id} className="py-2.5 flex justify-between items-center text-xs">
                         <div>
@@ -4240,7 +4255,7 @@ export default function App() {
               <div className="flex items-center gap-2 border-b border-purple-100 pb-2">
                 <Users className="w-5 h-5 text-purple-600" />
                 <div>
-                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                  <h2 className="text-base font-bold text-slate-800">
                     Lanzar Nueva Campaña de Difusión Temática (Persistente)
                   </h2>
                   <p className="text-xs text-slate-500">
@@ -4314,7 +4329,7 @@ export default function App() {
                             onChange={() => toggleBroadcastRig(r.id)}
                             className="rounded text-purple-600 focus:ring-purple-500"
                           />
-                          <span className="font-semibold text-slate-800">🚜 {r.name}</span>
+                          <span className="font-semibold text-slate-800">{r.name}</span>
                         </label>
                       ))}
                     </div>
@@ -4337,7 +4352,7 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-purple-600" />
                   <div>
-                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                    <h2 className="text-base font-bold text-slate-800">
                       Biblioteca de Campañas de Difusión ({campaigns.length})
                     </h2>
                     <p className="text-xs text-slate-500">
@@ -4361,7 +4376,7 @@ export default function App() {
                           <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{camp.description}</p>
                         )}
                         <span className="text-[10px] text-purple-700 font-semibold bg-purple-50 px-2 py-0.5 rounded border border-purple-200 inline-block mt-1">
-                          📅 Fecha Límite: {formatDateDDMMYYYY(camp.target_date)}
+                          Fecha Límite: {formatDateDDMMYYYY(camp.target_date)}
                         </span>
                         {campaignStats[camp.id] && (
                           <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-block mt-1 ml-1.5">
@@ -4401,7 +4416,7 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <BarChart2 className="w-5 h-5 text-amber-600" />
                   <div>
-                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                    <h2 className="text-base font-bold text-slate-800">
                       Panel de Control y Analítica de Inspectores
                     </h2>
                     <p className="text-xs text-slate-500">
@@ -4422,7 +4437,7 @@ export default function App() {
                     onChange={(e) => setAdminSelectedInspector(e.target.value)}
                     className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold"
                   >
-                    <option value="ALL">🌐 Todos los Inspectores (Global)</option>
+                    <option value="ALL">Todos los Inspectores (Global)</option>
                     {profiles.map((p) => (
                       <option key={p.id} value={p.id}>{p.full_name} ({p.email})</option>
                     ))}
@@ -4531,7 +4546,7 @@ export default function App() {
               </div>
 
               <div className="pt-2">
-                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-bold text-slate-700 mb-2">
                   Registro Consolidado de Jornadas ({groupedDaysArray.length} días de campo - {adminStats.totalActivities} actividades)
                 </h3>
 
@@ -4546,7 +4561,7 @@ export default function App() {
                         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
                           <div className="flex items-center gap-2">
                             <span className="text-xs bg-slate-900 text-white font-bold px-2.5 py-1 rounded-md">
-                              📅 {formatDateDDMMYYYY(day.date)}
+                              {formatDateDDMMYYYY(day.date)}
                             </span>
                             <span className="text-xs font-bold text-slate-800">
                               👤 {day.userName}
@@ -4566,7 +4581,7 @@ export default function App() {
                                     🏷️ {getLogTypes(act).join(' + ')}
                                   </span>
                                   <span className="bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded">
-                                    🚜 {getLogRigNames(act).join(' + ')}
+                                    {getLogRigNames(act).join(' + ')}
                                   </span>
                                   {act.created_by_id && act.created_by_id !== act.user_id && (
                                     <span className="text-[10px] text-slate-500">Cargado por: {act.created_by_name}</span>
@@ -4604,7 +4619,7 @@ export default function App() {
             <section className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
               <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
                 <HardHat className="w-5 h-5 text-amber-600" />
-                <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                <h2 className="text-base font-bold text-slate-800">
                   Gestión de Equipos de Perforación
                 </h2>
               </div>
@@ -4659,7 +4674,7 @@ export default function App() {
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                   <div className="flex items-center gap-2">
                     <ClipboardList className="w-5 h-5 text-amber-600" />
-                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                    <h2 className="text-base font-bold text-slate-800">
                       {editingTemplateId ? '✏️ Modificar Tarea del Catálogo' : 'Nueva Tarea al Catálogo'}
                     </h2>
                   </div>
@@ -4824,7 +4839,7 @@ export default function App() {
                       onChange={(e) => setShiftInspectorFilter(e.target.value)}
                       className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
                     >
-                      <option value="ALL">🌐 Todos los Inspectores (Consolidado del período)</option>
+                      <option value="ALL">Todos los Inspectores (Consolidado del período)</option>
                       {profiles.map((p) => (
                         <option key={p.id} value={p.id}>👤 {p.full_name || p.email}</option>
                       ))}
@@ -4934,7 +4949,7 @@ export default function App() {
                       className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-semibold"
                     >
                       {(rigs || []).map((r) => (
-                        <option key={r.id} value={r.id}>🚜 {r.name}</option>
+                        <option key={r.id} value={r.id}>{r.name}</option>
                       ))}
                     </select>
                   </div>
@@ -5049,7 +5064,7 @@ export default function App() {
                       className="w-full text-sm p-2 border border-slate-300 rounded-lg bg-white font-semibold"
                     >
                       {(rigs || []).map((r) => (
-                        <option key={r.id} value={r.id}>🚜 {r.name}</option>
+                        <option key={r.id} value={r.id}>{r.name}</option>
                       ))}
                     </select>
                   </div>
@@ -5238,7 +5253,7 @@ export default function App() {
                           onChange={() => toggleReassignRig(r.id)}
                           className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4"
                         />
-                        <span className="font-semibold text-slate-800">🚜 {r.name}</span>
+                        <span className="font-semibold text-slate-800">{r.name}</span>
                       </label>
                     ))}
                   </div>
@@ -5322,7 +5337,7 @@ export default function App() {
                           onChange={() => toggleAssignRig(r.id)}
                           className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4"
                         />
-                        <span className="font-semibold text-slate-800">🚜 {r.name}</span>
+                        <span className="font-semibold text-slate-800">{r.name}</span>
                       </label>
                     ))}
                   </div>
