@@ -310,7 +310,7 @@ export default function App() {
   ];
 
   const monthOptions = [
-    { value: 'ALL', label: 'Todos los Meses' },
+    { value: 'ALL', label: 'Todos' },
     { value: '01', label: 'Enero' },
     { value: '02', label: 'Febrero' },
     { value: '03', label: 'Marzo' },
@@ -3417,70 +3417,29 @@ export default function App() {
         {activeTab === 'guardia' && (
           <div className="space-y-4">
             {/* TARJETAS DE CONTEO (SE ACTUALIZAN SEGÚN MODO "PERÍODO" O "HISTORIAL COMPLETO") */}
-            <section className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
-              <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
-                <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Días en DTM</span>
-                <span className="text-xl font-black text-amber-950">{activityStats.dtm}</span>
-                <span className="text-[9px] text-amber-700 block">
-                  {shiftViewMode === 'HISTORIAL' ? 'histórico total' : 'en el período'}
-                </span>
+            <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-slate-900 text-white rounded-lg px-3 py-2">
+                  <span className="block text-2xl font-black leading-tight">{uniqueWorkDaysInLogs}</span>
+                  <span className="block text-xs text-slate-300">Días en campo · {shiftViewMode === 'HISTORIAL' ? 'histórico' : 'período'}</span>
+                </div>
+                <div className="bg-amber-50 text-amber-950 rounded-lg px-3 py-2">
+                  <span className="block text-2xl font-black leading-tight">{activityStats.dtm}</span>
+                  <span className="block text-xs text-amber-800">Días en DTM</span>
+                </div>
               </div>
-              <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Act. Planificadas</span>
-                <span className="text-xl font-black text-emerald-950">{activityStats.plan}</span>
-                <span className="text-[9px] text-emerald-700 block">actividades</span>
-              </div>
-              <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
-                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Simulacros</span>
-                <span className="text-xl font-black text-blue-950">{activityStats.drill}</span>
-                <span className="text-[9px] text-blue-700 block">ejecutados</span>
-              </div>
-              <div className="bg-purple-50 p-2.5 rounded-xl border border-purple-200">
-                <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">Reuniones HSE</span>
-                <span className="text-xl font-black text-purple-950">{activityStats.meeting}</span>
-                <span className="text-[9px] text-purple-700 block">reuniones</span>
-              </div>
-              <div className="bg-teal-50 p-2.5 rounded-xl border border-teal-200">
-                <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block">EcoTour</span>
-                <span className="text-xl font-black text-teal-950">{activityStats.ecotour}</span>
-                <span className="text-[9px] text-teal-700 block">ambientales</span>
-              </div>
-              <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
-                <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">Asist. Base</span>
-                <span className="text-xl font-black text-indigo-950">{activityStats.base}</span>
-                <span className="text-[9px] text-indigo-700 block">operativa</span>
-              </div>
-              <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-                <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider block">Inspecciones</span>
-                <span className="text-xl font-black text-rose-950">{activityStats.inspection}</span>
-                <span className="text-[9px] text-rose-700 block">auditorías</span>
-              </div>
-              <div className="bg-cyan-50 p-2.5 rounded-xl border border-cyan-200">
-                <span className="text-[10px] font-bold text-cyan-800 uppercase tracking-wider block">Capacitación</span>
-                <span className="text-xl font-black text-cyan-950">{activityStats.induction}</span>
-                <span className="text-[9px] text-cyan-700 block">inducciones</span>
-              </div>
-              <div className="bg-orange-50 p-2.5 rounded-xl border border-orange-200">
-                <span className="text-[10px] font-bold text-orange-800 uppercase tracking-wider block">Visita Gral.</span>
-                <span className="text-xl font-black text-orange-950">{activityStats.visita}</span>
-                <span className="text-[9px] text-orange-700 block">visitas</span>
-              </div>
-              <div className="bg-fuchsia-50 p-2.5 rounded-xl border border-fuchsia-200">
-                <span className="text-[10px] font-bold text-fuchsia-800 uppercase tracking-wider block">Difusiones</span>
-                <span className="text-xl font-black text-fuchsia-950">{activityStats.difusion}</span>
-                <span className="text-[9px] text-fuchsia-700 block">temáticas</span>
-              </div>
-              <div className="bg-slate-100 p-2.5 rounded-xl border border-slate-200">
-                <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">Otras</span>
-                <span className="text-xl font-black text-slate-900">{activityStats.otro}</span>
-                <span className="text-[9px] text-slate-500 block">actividades</span>
-              </div>
-              <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-sm">
-                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Días en Campo</span>
-                <span className="text-xl font-black">{uniqueWorkDaysInLogs}</span>
-                <span className="text-[9px] text-slate-400 block">
-                  {shiftViewMode === 'HISTORIAL' ? 'jornadas históricas' : 'en el período'}
-                </span>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                {[
+                  ['Planificadas', activityStats.plan], ['Simulacros', activityStats.drill], ['Reuniones HSE', activityStats.meeting],
+                  ['EcoTour', activityStats.ecotour], ['Asist. base', activityStats.base], ['Inspecciones', activityStats.inspection],
+                  ['Capacitación', activityStats.induction], ['Visita gral.', activityStats.visita], ['Difusiones', activityStats.difusion],
+                  ['Otras', activityStats.otro],
+                ].map(([label, n]) => (
+                  <div key={label} className={`rounded-lg px-2 py-1.5 text-center ${n > 0 ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+                    <span className={`block text-lg font-black leading-tight ${n > 0 ? 'text-emerald-800' : 'text-slate-400'}`}>{n}</span>
+                    <span className={`block text-[11px] leading-tight ${n > 0 ? 'text-emerald-900 font-semibold' : 'text-slate-500'}`}>{label}</span>
+                  </div>
+                ))}
               </div>
             </section>
 
@@ -3740,12 +3699,12 @@ export default function App() {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                    <AlertOctagon className="w-4 h-4 text-red-600" />
-                    Registro de Contingencias, Incidentes y Accidentes
+                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <AlertOctagon className="w-5 h-5 text-red-600" />
+                    Contingencias, incidentes y accidentes
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Filtra y analiza los eventos ambientales, vehiculares y personales registrados en campo.
+                    Eventos ambientales, vehiculares y personales registrados en campo.
                   </p>
                 </div>
 
@@ -3754,50 +3713,47 @@ export default function App() {
                   className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3.5 rounded-lg transition shadow-sm"
                 >
                   <Plus className="w-4 h-4" />
-                  + Reportar Evento / Contingencia
+                  Reportar evento
                 </button>
               </div>
 
               {/* BARRA DE FILTROS: EQUIPO, AÑO Y MES */}
-              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-wrap items-center gap-3 text-xs">
-                <span className="font-bold text-slate-700 flex items-center gap-1">
-                  <Filter className="w-3.5 h-3.5 text-red-600" /> Filtrar Contingencias:
-                </span>
+              <div className="grid grid-cols-3 gap-2 text-xs">
 
-                <div className="flex items-center gap-1.5">
-                  <label className="text-slate-500 font-semibold">Equipo:</label>
+                <div className="min-w-0">
+                  <label className="block text-slate-500 font-semibold mb-1">Equipo:</label>
                   <select
                     value={incFilterRig}
                     onChange={(e) => setIncFilterRig(e.target.value)}
-                    className="p-1.5 border border-slate-300 rounded-md bg-white font-semibold text-slate-800"
+                    className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
                   >
-                    <option value="ALL">🌐 Todos los Equipos</option>
+                    <option value="ALL">Todos</option>
                     {(rigs || []).map((r) => (
-                      <option key={r.id} value={r.id}>🚜 {r.name}</option>
+                      <option key={r.id} value={r.id}>{r.name}</option>
                     ))}
                   </select>
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  <label className="text-slate-500 font-semibold">Año:</label>
+                <div className="min-w-0">
+                  <label className="block text-slate-500 font-semibold mb-1">Año:</label>
                   <select
                     value={incFilterYear}
                     onChange={(e) => setIncFilterYear(e.target.value)}
-                    className="p-1.5 border border-slate-300 rounded-md bg-white font-semibold text-slate-800"
+                    className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
                   >
-                    <option value="ALL">Todos los Años</option>
+                    <option value="ALL">Todos</option>
                     {availableIncidentYears.map((yr) => (
                       <option key={yr} value={yr}>{yr}</option>
                     ))}
                   </select>
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  <label className="text-slate-500 font-semibold">Mes:</label>
+                <div className="min-w-0">
+                  <label className="block text-slate-500 font-semibold mb-1">Mes:</label>
                   <select
                     value={incFilterMonth}
                     onChange={(e) => setIncFilterMonth(e.target.value)}
-                    className="p-1.5 border border-slate-300 rounded-md bg-white font-semibold text-slate-800"
+                    className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold text-slate-800"
                   >
                     {monthOptions.map((m) => (
                       <option key={m.value} value={m.value}>{m.label}</option>
@@ -3808,48 +3764,32 @@ export default function App() {
                 {(incFilterYear !== 'ALL' || incFilterMonth !== 'ALL' || incFilterRig !== 'ALL') && (
                   <button
                     onClick={() => { setIncFilterYear('ALL'); setIncFilterMonth('ALL'); setIncFilterRig('ALL'); }}
-                    className="text-[11px] text-red-600 hover:underline font-semibold ml-auto"
+                    className="col-span-3 text-xs text-red-600 hover:underline font-semibold text-right"
                   >
-                    Restablecer Filtros
+                    Quitar filtros
                   </button>
                 )}
               </div>
             </div>
 
             {/* TARJETAS INFORMATIVAS POR TIPO DE EVENTO */}
-            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-              <div className="bg-slate-900 text-white p-3 rounded-xl shadow-sm col-span-2 sm:col-span-1">
-                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block">Total Eventos</span>
-                <span className="text-2xl font-black">{filteredIncidents.length}</span>
-                <span className="text-[10px] text-slate-400 block">
-                  {incFilterRig !== 'ALL' ? (rigs.find(r => r.id === incFilterRig)?.name || 'equipo') : 'todos los equipos'}
-                </span>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+              <div className="bg-slate-900 text-white rounded-lg px-2 py-1.5 text-center">
+                <span className="block text-lg font-black leading-tight">{filteredIncidents.length}</span>
+                <span className="block text-[11px] text-slate-300 leading-tight">Total</span>
               </div>
-              <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block truncate">Ambiental</span>
-                <span className="text-xl font-black text-emerald-950">{incidentTypeStats['Incidente ambiental (derrame)'] || 0}</span>
-                <span className="text-[9px] text-emerald-700 block">derrames</span>
-              </div>
-              <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
-                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block truncate">Vehicular</span>
-                <span className="text-xl font-black text-blue-950">{incidentTypeStats['Accidente vehicular'] || 0}</span>
-                <span className="text-[9px] text-blue-700 block">camionetas/móviles</span>
-              </div>
-              <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
-                <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block truncate">In Itinere</span>
-                <span className="text-xl font-black text-indigo-950">{incidentTypeStats['Accidente In Itinere'] || 0}</span>
-                <span className="text-[9px] text-indigo-700 block">trayectos</span>
-              </div>
-              <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
-                <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block truncate">Personal</span>
-                <span className="text-xl font-black text-amber-950">{incidentTypeStats['Accidente personal'] || 0}</span>
-                <span className="text-[9px] text-amber-700 block">lesiones</span>
-              </div>
-              <div className="bg-red-50 p-2.5 rounded-xl border border-red-200">
-                <span className="text-[10px] font-bold text-red-800 uppercase tracking-wider block truncate">Alto Potencial</span>
-                <span className="text-xl font-black text-red-950">{incidentTypeStats['Incidente de alto potencial'] || 0}</span>
-                <span className="text-[9px] text-red-700 block">cuasi accidentes</span>
-              </div>
+              {[
+                ['Ambiental', 'Incidente ambiental (derrame)'], ['Vehicular', 'Accidente vehicular'], ['In itinere', 'Accidente In Itinere'],
+                ['Personal', 'Accidente personal'], ['Alto potencial', 'Incidente de alto potencial'],
+              ].map(([label, key]) => {
+                const n = incidentTypeStats[key] || 0;
+                return (
+                  <div key={key} className={`rounded-lg px-2 py-1.5 text-center ${n > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+                    <span className={`block text-lg font-black leading-tight ${n > 0 ? 'text-red-700' : 'text-slate-400'}`}>{n}</span>
+                    <span className={`block text-[11px] leading-tight ${n > 0 ? 'text-red-900 font-semibold' : 'text-slate-500'}`}>{label}</span>
+                  </div>
+                );
+              })}
             </div>
 
             {/* EVENTOS POR EQUIPO */}
