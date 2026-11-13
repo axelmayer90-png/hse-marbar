@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   FileText, Plus, Trash2, Camera, Image as ImageIcon, ArrowLeft, ArrowUp, ArrowDown,
-  ClipboardCheck, FileDown, Eye, Share2, CheckCircle2, AlertTriangle, WifiOff, Wifi, Cloud, CloudOff, X, Maximize, Minimize,
+  ClipboardCheck, FileDown, FileJson, Eye, Share2, CheckCircle2, AlertTriangle, WifiOff, Wifi, Cloud, CloudOff, X, Maximize, Minimize,
 } from 'lucide-react';
 import {
   listReports, getReport, saveReport, deleteReport, savePhoto, getPhoto, deletePhoto, newId,
 } from '../lib/informeStore';
 import { prepareSourcePhoto, renderFramedPhoto, blobToDataURL } from '../lib/imageTools';
 import { buildInformeVisita } from '../lib/informePdf';
+import { buildSeguimientoExport, seguimientoFileName } from '../lib/seguimientoExport';
 import { CHECKLISTS } from '../lib/checklists';
 import { newChecklist, checklistProgress, autoObsText } from '../lib/checklistUtils';
 import ChecklistEditor from './ChecklistEditor';
@@ -79,7 +80,7 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
   const [thumbs, setThumbs] = useState({}); // photoId -> objectURL
   const [saveState, setSaveState] = useState('saved');
   const [busy, setBusy] = useState('');
-  const [pdfResult, setPdfResult] = useState(null); // { url, file, name }
+  const [pdfResult, setPdfResult] = useState(null); // { url, file, name, seg: { url, file, name, count } }
   const [openChecklist, setOpenChecklist] = useState(null); // id del checklist en pantalla
   const saveTimer = useRef(null);
 
@@ -225,6 +226,7 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
     setEditing(null);
     setOpenChecklist(null);
     if (pdfResult?.url) URL.revokeObjectURL(pdfResult.url);
+    if (pdfResult?.seg?.url) URL.revokeObjectURL(pdfResult.seg.url);
     setPdfResult(null);
     refreshList();
   };
@@ -415,7 +417,13 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
       const blob = doc.output('blob');
       const file = new File([blob], name, { type: 'application/pdf' });
       if (pdfResult?.url) URL.revokeObjectURL(pdfResult.url);
-      setPdfResult({ url: URL.createObjectURL(blob), file, name });
+      if (pdfResult?.seg?.url) URL.revokeObjectURL(pdfResult.seg.url);
+      // Archivo para el Seguimiento de Acciones SSMA (lo importa Power Automate desde SharePoint)
+      const exp = buildSeguimientoExport(r, name);
+      const segName = seguimientoFileName(name);
+      const segBlob = new Blob([JSON.stringify(exp, null, 2)], { type: 'application/json' });
+      const seg = { url: URL.createObjectURL(segBlob), file: new File([segBlob], segName, { type: 'application/json' }), name: segName, count: exp.observaciones.length, ok: !!(exp.informe.servicio && exp.informe.equipo) };
+      setPdfResult({ url: URL.createObjectURL(blob), file, name, seg });
 
       const saved = { ...r, status: 'generado', synced: false, generatedAt: Date.now(), fileName: name };
       clearTimeout(saveTimer.current);
@@ -430,11 +438,13 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
     }
   };
 
-  const downloadPdf = () => {
+  const downloadFile = (url, fname) => {
     const a = document.createElement('a');
-    a.href = pdfResult.url; a.download = pdfResult.name;
+    a.href = url; a.download = fname;
     document.body.appendChild(a); a.click(); a.remove();
   };
+  const downloadPdf = () => downloadFile(pdfResult.url, pdfResult.name);
+  const downloadSeg = () => downloadFile(pdfResult.seg.url, pdfResult.seg.name);
   const canShare = pdfResult && navigator.canShare && navigator.canShare({ files: [pdfResult.file] });
   const sharePdf = async () => {
     try { await navigator.share({ files: [pdfResult.file], title: pdfResult.name }); } catch { /* cancelado */ }
@@ -605,6 +615,19 @@ export default function InformesModule({ supabase, session, currentUserProfile, 
               </button>
             )}
           </div>
+          {pdfResult.seg && pdfResult.seg.count > 0 && (
+            <div className="mt-3 pt-3 border-t border-emerald-200">
+              <p className="text-xs font-bold text-emerald-900">Seguimiento de acciones</p>
+              <p className="text-[11px] text-emerald-800 mt-0.5">
+                {pdfResult.seg.count} desvío{pdfResult.seg.count === 1 ? '' : 's'} para cargar. Subí este archivo a SharePoint en
+                <span className="font-semibold"> SSMA Regional Oeste › 48 - Seguimiento Acciones SGI › Importar observaciones</span> y se cargan solos en la lista (las que ya están abiertas no se repiten).
+              </p>
+              {!pdfResult.seg.ok && <p className="text-[11px] text-red-700 mt-1">Revisá el sector y el equipo: el sector tiene que ser Control de Sólidos o Fluidos para saber a qué servicio cargarlo.</p>}
+              <button onClick={downloadSeg} className="mt-2 flex items-center gap-1.5 bg-white border border-emerald-300 text-emerald-800 font-semibold text-sm py-2 px-3 rounded-lg">
+                <FileJson className="w-4 h-4" /> Descargar datos para seguimiento
+              </button>
+            </div>
+          )}
         </section>
       )}
 
